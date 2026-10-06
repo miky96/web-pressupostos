@@ -36,6 +36,8 @@ export interface DiscoveredAccount {
   openingBalanceCents: Cents;
   closingBalanceCents: Cents;
   rowCount: number;
+  /** Data de tancament si el banc indica que el producte s'ha tancat (i el saldo final és 0). */
+  closedAt?: string;
 }
 
 export interface ImportIssue {

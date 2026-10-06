@@ -3,8 +3,9 @@ import { reclassify } from '../application/importService';
 import type { Rule } from '../domain/classification';
 import { formatCents } from '../domain/money';
 import { filterTransactions, summarize, type TransactionFilter } from '../domain/summary';
-import { editTransaction } from '../domain/transactions';
+import { bulkEditTransactions, editTransaction, type BulkPatch } from '../domain/transactions';
 import { TRANSACTION_KINDS, type Transaction, type TransactionKind } from '../domain/types';
+import { BulkEditBar } from './BulkEditBar';
 import { formatDate, KIND_LABELS } from './labels';
 import { TransactionForm } from './TransactionForm';
 import { newId, type BudgetState } from './useBudget';
@@ -17,6 +18,7 @@ export function TransactionsPage({ budget }: { budget: BudgetState }) {
   const [limit, setLimit] = useState(PAGE);
   const [showForm, setShowForm] = useState(false);
   const [learn, setLearn] = useState(true);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const rows = useMemo(
     () => (data ? filterTransactions(data.transactions, filter).sort((a, b) => b.date.localeCompare(a.date)) : []),
@@ -28,6 +30,7 @@ export function TransactionsPage({ budget }: { budget: BudgetState }) {
   const set = (patch: Partial<TransactionFilter>) => {
     setFilter((f) => ({ ...f, ...patch }));
     setLimit(PAGE);
+    setSelected(new Set()); // no deixar seleccionats moviments que ja no es veuen
   };
 
   const save = (tx: Transaction, patch: Partial<Transaction>) => run((repo) => repo.upsertTransactions([editTransaction(tx, patch)]));
@@ -52,6 +55,28 @@ export function TransactionsPage({ budget }: { budget: BudgetState }) {
       );
       await repo.upsertTransactions(updated);
     });
+  }
+
+  const visible = rows.slice(0, limit);
+  const allVisibleSelected = visible.length > 0 && visible.every((t) => selected.has(t.id));
+
+  function toggle(id: string) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected(allVisibleSelected ? new Set() : new Set(visible.map((t) => t.id)));
+  }
+
+  async function applyBulk(patch: BulkPatch) {
+    const txs = data!.transactions.filter((t) => selected.has(t.id));
+    await run((repo) => repo.upsertTransactions(bulkEditTransactions(txs, patch)));
+    setSelected(new Set());
   }
 
   async function remove(tx: Transaction) {
@@ -121,10 +146,17 @@ export function TransactionsPage({ budget }: { budget: BudgetState }) {
         <input type="checkbox" checked={learn} onChange={(e) => setLearn(e.target.checked)} /> En canviar una categoria, aplica-la també als moviments amb la mateixa descripció (crea una regla)
       </label>
 
+      {selected.size > 0 && (
+        <BulkEditBar count={selected.size} categories={data.categories} onApply={applyBulk} onClear={() => setSelected(new Set())} />
+      )}
+
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
+              <th className="select">
+                <input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} title="Seleccionar tots els visibles" />
+              </th>
               <th>Data</th>
               <th>Compte</th>
               <th>Descripció</th>
@@ -136,8 +168,11 @@ export function TransactionsPage({ budget }: { budget: BudgetState }) {
             </tr>
           </thead>
           <tbody>
-            {rows.slice(0, limit).map((t) => (
+            {visible.map((t) => (
               <tr key={t.id} className={t.hidden ? 'hidden-row' : t.needsReview ? 'review-row' : ''}>
+                <td className="select">
+                  <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} aria-label="Seleccionar" />
+                </td>
                 <td className="nowrap">{formatDate(t.date)}</td>
                 <td>{lookups.accounts.get(t.accountId)?.name ?? '?'}</td>
                 <td>
@@ -176,7 +211,12 @@ export function TransactionsPage({ budget }: { budget: BudgetState }) {
                     onBlur={(e) => e.target.value !== (t.notes ?? '') && save(t, { notes: e.target.value || undefined })}
                   />
                 </td>
-                <td>
+                <td className="nowrap">
+                  {t.needsReview && (
+                    <button className="link" title="És correcte: treure de 'per revisar'" onClick={() => save(t, {})}>
+                      ✓
+                    </button>
+                  )}
                   <button className="link" title="Eliminar" onClick={() => remove(t)}>
                     ✕
                   </button>

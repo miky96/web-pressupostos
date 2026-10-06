@@ -16,7 +16,13 @@ const TABS = {
 } as const;
 type Tab = keyof typeof TABS;
 
-export function App({ repo }: { repo: BudgetRepository }) {
+/** Present quan l'app funciona amb Firebase (hi ha un usuari autenticat). */
+export interface AccountInfo {
+  email: string | null;
+  signOut: () => void;
+}
+
+export function App({ repo, account }: { repo: BudgetRepository; account?: AccountInfo }) {
   const budget = useBudget(repo);
   const [tab, setTab] = useState<Tab>('moviments');
   const reviewCount = useMemo(() => budget.data?.transactions.filter((t) => t.needsReview && !t.hidden).length ?? 0, [budget.data]);
@@ -33,6 +39,14 @@ export function App({ repo }: { repo: BudgetRepository }) {
             </button>
           ))}
         </nav>
+        {account && (
+          <div className="account muted">
+            {account.email}
+            <button className="link" onClick={account.signOut}>
+              Sortir
+            </button>
+          </div>
+        )}
       </header>
       {budget.error && (
         <div className="error" role="alert">
@@ -45,7 +59,7 @@ export function App({ repo }: { repo: BudgetRepository }) {
         {tab === 'comptes' && <AccountsPage budget={budget} />}
         {tab === 'importar' && <ImportPage budget={budget} />}
         {tab === 'regles' && <RulesPage budget={budget} />}
-        {tab === 'configuracio' && <SettingsPage budget={budget} />}
+        {tab === 'configuracio' && <SettingsPage budget={budget} cloud={!!account} />}
       </main>
     </div>
   );

@@ -71,3 +71,7 @@ td select { max-width: 190px; }
 .hidden-row { opacity: 0.45; }
 .review-row { background: var(--warn-bg); }
 input.notes { width: 140px; }
+.login { max-width: 420px; margin: 15vh auto; text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.account { display: flex; align-items: center; gap: 8px; }
+.bulk-bar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; }
+td.select, th.select { width: 28px; }

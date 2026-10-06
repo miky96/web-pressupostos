@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createAccount } from '../src/domain/accounts';
+import { applyClosure, createAccount } from '../src/domain/accounts';
 import { accountBalance } from '../src/domain/balances';
 import { classify, type Rule } from '../src/domain/classification';
 import {
@@ -14,7 +14,7 @@ import {
 import { accountPerformance } from '../src/domain/investments';
 import { parseDecimalToCents, parseUserAmount } from '../src/domain/money';
 import { netExpenseByCategory, summarize } from '../src/domain/summary';
-import { createManualTransaction, createManualTransfer, editTransaction } from '../src/domain/transactions';
+import { bulkEditTransactions, createManualTransaction, createManualTransfer, editTransaction } from '../src/domain/transactions';
 import { parseCsv } from '../src/importers/csv';
 
 describe('money', () => {
@@ -156,5 +156,62 @@ describe('resums', () => {
     expect(netExpenseByCategory(txs).get('restaurants')).toBe(2000);
     expect(netExpenseByCategory(txs).has('oci')).toBe(false);
     expect(summarize(txs).netExpenseCents).toBe(2000);
+  });
+});
+
+describe('applyClosure', () => {
+  const acc = createAccount({ name: 'Revolut Estalvi', type: 'savings' }, 'acc1');
+
+  it('arxiva el compte el primer cop que es detecta el tancament', () => {
+    expect(applyClosure(acc, '2026-09-10T10:00:01')).toMatchObject({ archived: true, closedAt: '2026-09-10T10:00:01' });
+    expect(applyClosure(acc, undefined)).toBe(acc);
+  });
+
+  it("si l'usuari el desarxiva, reimportar el mateix tancament no el torna a arxivar", () => {
+    const unarchived = { ...applyClosure(acc, '2026-09-10T10:00:01'), archived: false };
+    expect(applyClosure(unarchived, '2026-09-10T10:00:01')).toBe(unarchived);
+    expect(applyClosure(unarchived, '2027-01-01T00:00:00').archived).toBe(true);
+  });
+});
+
+describe('bulkEditTransactions', () => {
+  const base = (id: string, extra: Partial<import('../src/domain/types').Transaction> = {}) => ({
+    id,
+    accountId: 'a',
+    date: '2026-09-01T10:00:00',
+    amountCents: 2000,
+    feeCents: 0,
+    currency: 'EUR',
+    description: 'Payment from Anna',
+    kind: 'reimbursement' as const,
+    source: 'import' as const,
+    needsReview: true,
+    ...extra,
+  });
+
+  it('un patch buit només els marca com a revisats', () => {
+    const [t] = bulkEditTransactions([base('1', { categoryId: 'restaurants' })], {});
+    expect(t).toMatchObject({ needsReview: false, userEdited: true, kind: 'reimbursement', categoryId: 'restaurants' });
+  });
+
+  it('aplica tipus i categoria, i null treu la categoria', () => {
+    const out = bulkEditTransactions([base('1'), base('2', { categoryId: 'oci' })], { kind: 'income', categoryId: 'altres-ingressos' });
+    expect(out.map((t) => [t.kind, t.categoryId])).toEqual([
+      ['income', 'altres-ingressos'],
+      ['income', 'altres-ingressos'],
+    ]);
+    expect(bulkEditTransactions([base('3', { categoryId: 'oci' })], { categoryId: null })[0].categoryId).toBeUndefined();
+  });
+
+  it('els traspassos no porten categoria', () => {
+    expect(bulkEditTransactions([base('1', { categoryId: 'oci' })], { kind: 'transfer', categoryId: 'oci' })[0].categoryId).toBeUndefined();
+  });
+
+  it('notes: substituir, afegir i esborrar', () => {
+    const t = base('1', { notes: 'sopar' });
+    expect(bulkEditTransactions([t], { notes: 'viatge' })[0].notes).toBe('viatge');
+    expect(bulkEditTransactions([t], { notes: 'viatge', appendNotes: true })[0].notes).toBe('sopar · viatge');
+    expect(bulkEditTransactions([base('2')], { notes: 'viatge', appendNotes: true })[0].notes).toBe('viatge');
+    expect(bulkEditTransactions([t], { notes: null })[0].notes).toBeUndefined();
   });
 });

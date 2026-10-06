@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import type { BudgetData } from '../application/ports';
 import { refreshBuiltInRules } from '../application/seed';
+import { LOCAL_BUDGET_ID, readStoredBudget } from '../infrastructure/keyValueRepository';
 import type { BudgetState } from './useBudget';
 
-export function SettingsPage({ budget }: { budget: BudgetState }) {
+export function SettingsPage({ budget, cloud = false }: { budget: BudgetState; cloud?: boolean }) {
   const { data, run, setError } = budget;
   const [ownerName, setOwnerName] = useState(data?.settings.ownerName ?? '');
   const [employerPattern, setEmployerPattern] = useState(data?.settings.employerPattern ?? '');
   const [saved, setSaved] = useState(false);
+  const [localCopy] = useState(() => (cloud ? readStoredBudget(window.localStorage, LOCAL_BUDGET_ID) : null));
   if (!data) return null;
 
   async function save() {
@@ -30,12 +32,15 @@ export function SettingsPage({ budget }: { budget: BudgetState }) {
     URL.revokeObjectURL(a.href);
   }
 
+  async function restore(parsed: BudgetData) {
+    if (!Array.isArray(parsed.transactions) || !Array.isArray(parsed.accounts)) throw new Error('No és una còpia de seguretat vàlida');
+    if (!window.confirm(`Substituir totes les dades actuals per la còpia (${parsed.transactions.length} moviments)?`)) return;
+    await run((repo) => repo.replaceAll(parsed));
+  }
+
   async function importBackup(file: File) {
     try {
-      const parsed = JSON.parse(await file.text()) as BudgetData;
-      if (!Array.isArray(parsed.transactions) || !Array.isArray(parsed.accounts)) throw new Error('No és una còpia de seguretat vàlida');
-      if (!window.confirm(`Substituir totes les dades actuals per la còpia (${parsed.transactions.length} moviments)?`)) return;
-      await run((repo) => repo.replaceAll(parsed));
+      await restore(JSON.parse(await file.text()) as BudgetData);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -64,8 +69,16 @@ export function SettingsPage({ budget }: { budget: BudgetState }) {
 
       <h3>Còpia de seguretat</h3>
       <p className="muted">
-        De moment les dades es guarden només en aquest navegador. Fes-ne còpies fins que connectem Firebase.
+        {cloud
+          ? 'Les dades es guarden al núvol (Firestore). Pots descarregar-ne una còpia quan vulguis.'
+          : 'Les dades es guarden només en aquest navegador. Fes-ne còpies de seguretat.'}
       </p>
+      {localCopy && (
+        <p className="warning">
+          Aquest navegador té dades de la versió local ({localCopy.transactions.length} moviments, {localCopy.accounts.length} comptes).{' '}
+          <button onClick={() => restore(localCopy).catch((e: unknown) => setError(String(e)))}>Copiar-les al núvol</button>
+        </p>
+      )}
       <button onClick={exportBackup}>Descarregar còpia (JSON)</button>{' '}
       <label className="button">
         Restaurar còpia

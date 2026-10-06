@@ -147,3 +147,25 @@ describe('guardiola que ja no surt a l\'export', () => {
     expect(plan.transactions.filter((t) => t.source === 'import').every((t) => t.kind === 'transfer')).toBe(true);
   });
 });
+
+describe('productes tancats', () => {
+  const header = 'Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance';
+  const rows = [
+    'Transfer,Deposit,2026-05-01 10:00:00,2026-05-01 10:00:00,To Savings Challenge,50.00,0.00,EUR,COMPLETED,50.00',
+    'Transfer,Deposit,2026-09-10 10:00:00,2026-09-10 10:00:00,SavingsAccount migration,-50.00,0.00,EUR,COMPLETED,0.00',
+    'Transfer,Deposit,2026-09-10 10:00:01,2026-09-10 10:00:01,Closing transaction,0.00,0.00,EUR,COMPLETED,0.00',
+    'Card Payment,Current,2026-05-02 10:00:00,2026-05-02 10:00:00,Mercadona,-10.00,0.00,EUR,COMPLETED,90.00',
+  ];
+
+  it("marca com a tancat el producte que acaba amb 'Closing transaction' i saldo 0", () => {
+    const { result } = importText([header, ...rows].join('\n'));
+    expect(result.accounts.find((a) => a.key === 'revolut:deposit:EUR')!.closedAt).toBe('2026-09-10T10:00:01');
+    expect(result.accounts.find((a) => a.key === 'revolut:current:EUR')!.closedAt).toBeUndefined();
+  });
+
+  it('no el marca si després del tancament hi ha més moviments o el saldo no és 0', () => {
+    const reopened = [...rows, 'Transfer,Deposit,2026-09-20 10:00:00,2026-09-20 10:00:00,To Savings Challenge,5.00,0.00,EUR,COMPLETED,5.00'];
+    const { result } = importText([header, ...reopened].join('\n'));
+    expect(result.accounts.find((a) => a.key === 'revolut:deposit:EUR')!.closedAt).toBeUndefined();
+  });
+});

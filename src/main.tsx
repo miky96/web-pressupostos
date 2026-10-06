@@ -1,15 +1,22 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { KeyValueBudgetRepository } from './infrastructure/keyValueRepository';
+import { initFirebase } from './infrastructure/firebase/firebaseApp';
+import { firebaseSession } from './infrastructure/firebase/firebaseSession';
+import { KeyValueBudgetRepository, LOCAL_BUDGET_ID } from './infrastructure/keyValueRepository';
 import { App } from './ui/App';
+import { AuthGate } from './ui/AuthGate';
 import './styles.css';
 
-// De moment: un sol pressupost personal guardat al navegador. Amb Firebase, el budgetId
-// vindrà de l'usuari autenticat (users/{uid}.defaultBudgetId).
-const repo = new KeyValueBudgetRepository(window.localStorage, 'personal');
+// Amb configuració de Firebase (.env.local o mode emulador): login + Firestore.
+// Sense: tot al navegador (localStorage), útil per desenvolupar sense xarxa.
+const firebase = initFirebase();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App repo={repo} />
+    {firebase ? (
+      <AuthGate session={firebaseSession(firebase)} emulated={firebase.emulated} />
+    ) : (
+      <App repo={new KeyValueBudgetRepository(window.localStorage, LOCAL_BUDGET_ID)} />
+    )}
   </StrictMode>,
 );

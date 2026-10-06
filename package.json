@@ -9,16 +9,25 @@
     "preview": "vite preview",
     "typecheck": "tsc",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "dev:emu": "vite --mode emulator",
+    "emulators": "node scripts/firebase.mjs emulators:start --only auth,firestore",
+    "test:rules": "node scripts/firebase.mjs emulators:exec --only firestore \"vitest run --config vitest.rules.config.ts\"",
+    "deploy": "npm run build && node scripts/firebase.mjs deploy --only hosting,firestore",
+    "deploy:rules": "node scripts/firebase.mjs deploy --only firestore:rules",
+    "firebase": "node scripts/firebase.mjs"
   },
   "dependencies": {
+    "firebase": "^12.19.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "firebase-tools": "^15.32.1",
     "typescript": "~5.9.2",
     "vite": "^7.1.0",
     "vitest": "^3.2.4"

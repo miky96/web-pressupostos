@@ -44,6 +44,15 @@ export function createAccount(input: NewAccountInput, id: string): Account {
   return account;
 }
 
+/**
+ * El banc ha tancat el producte: s'arxiva el compte. Només la primera vegada que es detecta
+ * aquest tancament; si després el desarxives, reimportar el mateix fitxer no el torna a arxivar.
+ */
+export function applyClosure(account: Account, closedAt: string | undefined): Account {
+  if (!closedAt || account.closedAt === closedAt) return account;
+  return { ...account, closedAt, archived: true };
+}
+
 /** Si una importació conté moviments més antics, el saldo inicial passa a ser el d'aquella data. */
 export function mergeOpening(account: Account, opening: { date: string; balanceCents: Cents }): Account {
   if (!account.opening || opening.date < account.opening.date) return { ...account, opening };

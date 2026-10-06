@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { planImport, requiredAccounts, type ImportPlan } from '../application/importService';
-import { createAccount, mergeOpening } from '../domain/accounts';
+import { applyClosure, createAccount, mergeOpening } from '../domain/accounts';
 import { formatCents } from '../domain/money';
 import type { Account, TransactionKind } from '../domain/types';
 import { importCsv, IMPORTERS } from '../importers/registry';
@@ -15,6 +15,8 @@ interface Preview {
   /** Comptes a crear o actualitzar (saldo inicial). */
   accounts: Account[];
   newAccountIds: Set<string>;
+  /** Comptes nous o modificats (saldo inicial, tancament) que cal desar. */
+  changedAccounts: Account[];
 }
 
 export function ImportPage({ budget }: { budget: BudgetState }) {
@@ -52,14 +54,15 @@ export function ImportPage({ budget }: { budget: BudgetState }) {
       }
       for (const d of result.accounts) {
         const i = accounts.findIndex((a) => a.importKey === d.key);
-        accounts[i] = mergeOpening(accounts[i], { date: d.openingDate, balanceCents: d.openingBalanceCents });
+        accounts[i] = applyClosure(mergeOpening(accounts[i], { date: d.openingDate, balanceCents: d.openingBalanceCents }), d.closedAt);
       }
+      const changedAccounts = accounts.filter((a) => newAccountIds.has(a.id) || data!.accounts.find((x) => x.id === a.id) !== a);
       const plan = planImport(result, {
         rules: data!.rules,
         accountIdByKey: Object.fromEntries(accounts.map((a) => [a.importKey!, a.id])),
         existingIds: new Set(data!.transactions.map((t) => t.id)),
       });
-      setPreview({ fileName: file.name, result, plan, accounts, newAccountIds });
+      setPreview({ fileName: file.name, result, plan, accounts, newAccountIds, changedAccounts });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -68,10 +71,14 @@ export function ImportPage({ budget }: { budget: BudgetState }) {
   async function confirm() {
     if (!preview) return;
     await run(async (repo) => {
-      await repo.upsertAccounts(preview.accounts);
+      await repo.upsertAccounts(preview.changedAccounts);
       await repo.upsertTransactions(preview.plan.transactions);
     });
-    setDone(`S'han importat ${preview.plan.transactions.length} moviments de ${preview.fileName}.`);
+    const archived = preview.changedAccounts.filter((a) => a.archived && a.closedAt).map((a) => a.name);
+    setDone(
+      `S'han importat ${preview.plan.transactions.length} moviments de ${preview.fileName}.` +
+        (archived.length ? ` Comptes tancats pel banc i arxivats: ${archived.join(', ')}.` : ''),
+    );
     setPreview(null);
   }
 
@@ -131,7 +138,14 @@ export function ImportPage({ budget }: { budget: BudgetState }) {
                     <td>{a.name}</td>
                     <td>{d?.rowCount ?? '—'}</td>
                     <td>{d ? formatCents(d.closingBalanceCents, d.currency) : "no surt a l'export (valoració manual)"}</td>
-                    <td>{preview.newAccountIds.has(a.id) ? <span className="badge">nou</span> : ''}</td>
+                    <td>
+                      {preview.newAccountIds.has(a.id) && <span className="badge">nou</span>}
+                      {d?.closedAt && preview.changedAccounts.includes(a) && a.archived && (
+                        <span className="badge" title={`Tancat pel banc el ${d.closedAt.slice(0, 10)}`}>
+                          tancat → s'arxivarà
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -158,8 +172,12 @@ export function ImportPage({ budget }: { budget: BudgetState }) {
               .map(([k, n]) => `${KIND_LABELS[k]}: ${n}`)
               .join(' · ')}
           </p>
-          <button className="primary" disabled={preview.plan.transactions.length === 0} onClick={confirm}>
-            Importar {preview.plan.transactions.length} moviments
+          <button
+            className="primary"
+            disabled={preview.plan.transactions.length === 0 && preview.changedAccounts.length === 0}
+            onClick={confirm}
+          >
+            {preview.plan.transactions.length > 0 ? `Importar ${preview.plan.transactions.length} moviments` : 'Actualitzar comptes'}
           </button>{' '}
           <button onClick={() => setPreview(null)}>Cancel·lar</button>
         </div>

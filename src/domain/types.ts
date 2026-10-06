@@ -39,6 +39,8 @@ export interface Account {
   interest?: InterestTerms;
   notes?: string;
   archived?: boolean;
+  /** Data en què el banc va tancar el producte (ve de la importació). */
+  closedAt?: string;
 }
 
 export type TransactionKind =

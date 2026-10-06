@@ -1,7 +1,13 @@
 node_modules
 dist
 *.local
-.env*
+.env
+.env.*
+!.env.example
+# Firebase CLI (firestore.rules es genera des de la plantilla amb els correus de .env.local)
+firestore.rules
+.firebase/
+*-debug.log
 # Exports bancaris reals: MAI al repo (contenen dades personals i de tercers)
 private/
 /*.csv

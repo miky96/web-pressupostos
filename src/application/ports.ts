@@ -31,3 +31,20 @@ export interface BudgetRepository {
   /** Substitueix totes les dades (restaurar una còpia de seguretat). */
   replaceAll(data: BudgetData): Promise<void>;
 }
+
+export interface SessionUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+}
+
+/**
+ * Port d'autenticació: la UI no sap res de Firebase. `openBudget` retorna el repositori
+ * del pressupost per defecte de l'usuari (i el crea el primer cop).
+ */
+export interface SessionService {
+  onChange(listener: (user: SessionUser | null) => void): () => void;
+  signIn(): Promise<void>;
+  signOut(): Promise<void>;
+  openBudget(user: SessionUser): Promise<BudgetRepository>;
+}

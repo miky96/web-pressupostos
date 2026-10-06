@@ -1,0 +1,61 @@
+name: CI i desplegament
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # L'emulador de Firestore (tests de regles) necessita Java
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm run test:run
+      - run: npm run test:rules
+      - run: npm run typecheck
+
+  deploy:
+    name: Desplegar a Firebase
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production
+    # Un sol desplegament alhora; si n'arriba un de nou, espera.
+    concurrency:
+      group: firebase-deploy
+      cancel-in-progress: false
+    env:
+      # Config de l'app web: no és secreta (acaba al JS públic) → Variables del repo
+      VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+      VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+      VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+      # Llista blanca de correus: secret perquè no surti al repo ni als logs
+      ALLOWED_EMAILS: ${{ secrets.ALLOWED_EMAILS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Escriu la clau del compte de servei a un fitxer temporal i defineix GOOGLE_APPLICATION_CREDENTIALS
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      - run: npm run deploy

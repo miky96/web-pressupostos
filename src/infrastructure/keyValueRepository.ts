@@ -13,6 +13,23 @@ export function memoryStorage(): KeyValueStorage {
   return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => void m.set(k, v) };
 }
 
+/** Id del pressupost de la versió només-navegador. */
+export const LOCAL_BUDGET_ID = 'personal';
+
+const storageKey = (budgetId: string) => `pressupostos:budget:${budgetId}`;
+
+/** Llegeix un pressupost desat a localStorage sense crear-lo (per migrar-lo al núvol). */
+export function readStoredBudget(storage: KeyValueStorage, budgetId: string): BudgetData | null {
+  try {
+    const raw = storage.getItem(storageKey(budgetId));
+    if (!raw) return null;
+    const data = { ...initialData(), ...(JSON.parse(raw) as Partial<BudgetData>) };
+    return data.transactions.length || data.accounts.length ? data : null;
+  } catch {
+    return null;
+  }
+}
+
 type Collection = 'accounts' | 'transactions' | 'categories' | 'rules' | 'valuations';
 
 /**
@@ -29,7 +46,7 @@ export class KeyValueBudgetRepository implements BudgetRepository {
   ) {}
 
   private get key() {
-    return `pressupostos:budget:${this.budgetId}`;
+    return storageKey(this.budgetId);
   }
 
   async load(): Promise<BudgetData> {

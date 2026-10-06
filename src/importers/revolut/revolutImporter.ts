@@ -28,6 +28,8 @@ export function revolutAccountKey(product: string, currency: string): string {
   return `revolut:${slug(product)}:${currency}`;
 }
 
+const CLOSING_RE = /^Closing transaction$/i;
+
 function suggestAccount(product: string): { name: string; type: AccountType } {
   switch (product) {
     case 'Current':
@@ -116,6 +118,8 @@ export const revolutImporter: BankImporter = {
       }
       const acc = accounts.get(key)!;
       acc.rowCount++;
+      // L'última fila d'un producte tancat és "Closing transaction" (import 0).
+      acc.closedAt = CLOSING_RE.test(get(r, 'Description')) ? date : undefined;
 
       if (balance !== undefined) {
         const prev = lastBalance.get(key);
@@ -158,6 +162,9 @@ export const revolutImporter: BankImporter = {
       });
     });
 
+    for (const acc of accounts.values()) {
+      if (acc.closingBalanceCents !== 0 || !acc.closedAt) delete acc.closedAt;
+    }
     return { importerId: 'revolut', rows, accounts: [...accounts.values()], skipped, issues };
   },
 };

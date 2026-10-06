@@ -86,3 +86,34 @@ export function editTransaction(tx: Transaction, patch: Partial<Omit<Transaction
   }
   return next;
 }
+
+/** Canvis en bloc. Un camp `undefined` vol dir "no el toquis". */
+export interface BulkPatch {
+  kind?: TransactionKind;
+  /** null = treure la categoria */
+  categoryId?: string | null;
+  /** null = esborrar les notes */
+  notes?: string | null;
+  /** true = afegeix el text a les notes existents en lloc de substituir-les */
+  appendNotes?: boolean;
+}
+
+/**
+ * Aplica el mateix canvi a diversos moviments. Sempre els marca com a revisats i editats per
+ * l'usuari (un patch buit serveix per "marcar com a revisats"). Els traspassos i ajustos no
+ * porten categoria.
+ */
+export function bulkEditTransactions(txs: Transaction[], patch: BulkPatch): Transaction[] {
+  return txs.map((tx) => {
+    const p: Partial<Transaction> = {};
+    if (patch.kind) p.kind = patch.kind;
+    if (patch.categoryId !== undefined) p.categoryId = patch.categoryId ?? undefined;
+    if (patch.notes !== undefined) {
+      const text = patch.notes?.trim() ?? '';
+      p.notes = patch.appendNotes && tx.notes && text ? `${tx.notes} · ${text}` : text || (patch.appendNotes ? tx.notes : undefined);
+    }
+    const next = editTransaction(tx, p);
+    if (next.kind === 'transfer' || next.kind === 'adjustment') delete next.categoryId;
+    return next;
+  });
+}

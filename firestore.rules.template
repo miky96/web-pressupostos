@@ -1,0 +1,69 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Llista blanca: només aquests comptes de Google poden fer servir l'app.
+    // Surt de ALLOWED_EMAILS a .env.local; scripts/firebase.mjs genera firestore.rules en desplegar.
+    function allowedEmails() {
+      return ALLOWED_EMAILS_PLACEHOLDER;
+    }
+
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in allowedEmails();
+    }
+
+    function roleIn(members) {
+      return members.get(request.auth.uid, null);
+    }
+
+    function budgetMembers(budgetId) {
+      return get(/databases/$(database)/documents/budgets/$(budgetId)).data.members;
+    }
+
+    function canReadBudget(budgetId) {
+      return signedIn() && exists(/databases/$(database)/documents/budgets/$(budgetId))
+        && roleIn(budgetMembers(budgetId)) in ['owner', 'editor', 'viewer'];
+    }
+
+    function canWriteBudget(budgetId) {
+      return canReadBudget(budgetId) && roleIn(budgetMembers(budgetId)) in ['owner', 'editor'];
+    }
+
+    match /users/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email', 'defaultBudgetId', 'createdAt']);
+      allow list, delete: if false;
+    }
+
+    match /budgets/{budgetId} {
+      // `resource == null`: llegir un pressupost que encara no existeix (primer accés) no revela res.
+      allow get: if signedIn() && (resource == null || roleIn(resource.data.members) != null);
+      allow list: if false;
+
+      // Només et pots crear un pressupost on siguis l'únic membre (owner).
+      // Els "personal-*" han de ser el teu: ningú pot ocupar el de l'altre.
+      allow create: if signedIn()
+        && request.resource.data.members.keys().hasOnly([request.auth.uid])
+        && request.resource.data.members[request.auth.uid] == 'owner'
+        && (!budgetId.matches('personal-.*') || budgetId == 'personal-' + request.auth.uid);
+
+      // Editar nom/configuració sí; tocar els membres, no (encara no hi ha UI per compartir).
+      allow update: if signedIn()
+        && roleIn(resource.data.members) in ['owner', 'editor']
+        && request.resource.data.members == resource.data.members;
+
+      allow delete: if false;
+
+      match /{collection}/{docId} {
+        allow read: if collection in ['accounts', 'transactions', 'categories', 'rules', 'valuations']
+          && canReadBudget(budgetId);
+        allow write: if collection in ['accounts', 'transactions', 'categories', 'rules', 'valuations']
+          && canWriteBudget(budgetId);
+      }
+    }
+  }
+}
