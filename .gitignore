@@ -1,0 +1,7 @@
+node_modules
+dist
+*.local
+.env*
+# Exports bancaris reals: MAI al repo (contenen dades personals i de tercers)
+private/
+/*.csv
