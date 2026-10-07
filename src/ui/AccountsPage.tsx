@@ -12,15 +12,10 @@ import { Card, PageHeader, Stat } from './kit/Card';
 import { Drawer } from './kit/Drawer';
 import { Badge, EmptyState } from './kit/Feedback';
 import { Icon, type IconName } from './kit/Icon';
-import { formatDate, formatPct } from './labels';
+import { ACCOUNT_GROUPS, formatDate, formatPct } from './labels';
 import { newId, type BudgetState } from './useBudget';
 
 const TYPE_ICON: Record<AccountType, IconName> = { bank: 'wallet', savings: 'percent', investment: 'trend', cash: 'banknote' };
-const TYPE_GROUPS: { label: string; types: AccountType[]; color: string }[] = [
-  { label: 'Liquiditat', types: ['bank', 'cash'], color: 'var(--color-accent)' },
-  { label: 'Estalvi remunerat', types: ['savings'], color: '#14b8a6' },
-  { label: 'Inversió', types: ['investment'], color: '#f59e0b' },
-];
 
 export function AccountsPage({ budget }: { budget: BudgetState }) {
   const { data } = budget;
@@ -34,7 +29,7 @@ export function AccountsPage({ budget }: { budget: BudgetState }) {
   const active = data.accounts.filter((a) => !a.archived);
   const archived = data.accounts.filter((a) => a.archived);
   const total = active.reduce((s, a) => s + balances.get(a.id)!.cents, 0);
-  const groups = TYPE_GROUPS.map((g) => {
+  const groups = ACCOUNT_GROUPS.map((g) => {
     const accounts = active.filter((a) => g.types.includes(a.type));
     return { ...g, accounts, cents: accounts.reduce((s, a) => s + balances.get(a.id)!.cents, 0) };
   }).filter((g) => g.accounts.length > 0);

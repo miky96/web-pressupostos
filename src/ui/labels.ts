@@ -1,5 +1,5 @@
 import type { Period } from '../domain/periods';
-import type { TransactionKind } from '../domain/types';
+import type { AccountType, TransactionKind } from '../domain/types';
 
 export const KIND_LABELS: Record<TransactionKind, string> = {
   expense: 'Despesa',
@@ -10,6 +10,13 @@ export const KIND_LABELS: Record<TransactionKind, string> = {
   reimbursement: 'Reemborsament',
   adjustment: 'Ajust',
 };
+
+/** Agrupació dels comptes per tipus (resum de patrimoni i gràfiques). */
+export const ACCOUNT_GROUPS: { label: string; types: AccountType[]; color: string }[] = [
+  { label: 'Liquiditat', types: ['bank', 'cash'], color: 'var(--color-accent)' },
+  { label: 'Estalvi remunerat', types: ['savings'], color: '#14b8a6' },
+  { label: 'Inversió', types: ['investment'], color: '#f59e0b' },
+];
 
 export function formatDate(iso: string): string {
   const [date, time] = iso.split('T');
@@ -65,4 +72,17 @@ export function previousLabel(p: Period): string {
   if (p.kind === 'month') return new Intl.DateTimeFormat('ca-ES', { month: 'long' }).format(localDate(`${p.month}-01`));
   if (p.kind === 'year') return p.year;
   return '';
+}
+
+/** "gen. 26" per als eixos de les gràfiques. */
+export function formatMonthShort(month: string): string {
+  const name = new Intl.DateTimeFormat('ca-ES', { month: 'short' }).format(localDate(`${month}-01`)).replace(/^de\s+|^d’/, '');
+  return `${name} ${month.slice(2, 4)}`;
+}
+
+const compactEur = new Intl.NumberFormat('ca-ES', { style: 'currency', currency: 'EUR', notation: 'compact', maximumFractionDigits: 1 });
+
+/** Import curt per als eixos ("1,2 k €"). */
+export function formatCentsCompact(cents: number): string {
+  return compactEur.format(cents / 100);
 }
