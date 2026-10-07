@@ -1,37 +1,93 @@
 import { useMemo, useState } from 'react';
 import { reclassify } from '../application/importService';
 import type { Rule } from '../domain/classification';
-import { formatCents } from '../domain/money';
-import { filterTransactions, summarize, type TransactionFilter } from '../domain/summary';
+import { todayIso } from '../domain/dates';
+import { latestMonth, periodRange, shiftPeriod, type Period } from '../domain/periods';
+import { filterTransactions, netExpenseByCategory, summarize, UNCATEGORIZED, type TransactionFilter } from '../domain/summary';
 import { bulkEditTransactions, editTransaction, type BulkPatch } from '../domain/transactions';
 import { TRANSACTION_KINDS, type Transaction, type TransactionKind } from '../domain/types';
 import { BulkEditBar } from './BulkEditBar';
-import { formatDate, KIND_LABELS } from './labels';
+import { Button } from './kit/Button';
+import { PageHeader } from './kit/Card';
+import { cx } from './kit/cx';
+import { Drawer } from './kit/Drawer';
+import { Alert, EmptyState, Switch } from './kit/Feedback';
+import { Icon } from './kit/Icon';
+import { KIND_LABELS, previousLabel } from './labels';
 import { TransactionForm } from './TransactionForm';
+import { PeriodPicker } from './transactions/PeriodPicker';
+import { SummaryPanel } from './transactions/SummaryPanel';
+import { TransactionDrawer } from './transactions/TransactionDrawer';
+import { TransactionList } from './transactions/TransactionList';
 import { newId, type BudgetState } from './useBudget';
 
-const PAGE = 200;
+const PAGE = 150;
 
-export function TransactionsPage({ budget }: { budget: BudgetState }) {
+/** Filtres de la vista; les dates les posa el període. */
+type ViewFilter = Omit<TransactionFilter, 'from' | 'to'>;
+
+const byDateDesc = (a: Transaction, b: Transaction) => b.date.localeCompare(a.date);
+
+export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; onNavigate?: (tab: 'importar' | 'comptes') => void }) {
   const { data, run, lookups } = budget;
-  const [filter, setFilter] = useState<TransactionFilter>({});
+  const [chosenPeriod, setPeriod] = useState<Period | null>(null);
+  const [filter, setFilter] = useState<ViewFilter>({});
+  const [showFilters, setShowFilters] = useState(false);
   const [limit, setLimit] = useState(PAGE);
-  const [showForm, setShowForm] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
   const [learn, setLearn] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const rows = useMemo(
-    () => (data ? filterTransactions(data.transactions, filter).sort((a, b) => b.date.localeCompare(a.date)) : []),
-    [data, filter],
-  );
-  const totals = useMemo(() => summarize(rows), [rows]);
-  if (!data) return null;
+  const defaultMonth = useMemo(() => latestMonth(data?.transactions ?? [], todayIso()), [data]);
+  const period = useMemo<Period>(() => chosenPeriod ?? { kind: 'month', month: defaultMonth }, [chosenPeriod, defaultMonth]);
 
-  const set = (patch: Partial<TransactionFilter>) => {
+  const view = useMemo(() => {
+    const txs = data?.transactions ?? [];
+    const inPeriod = (p: Period, f: ViewFilter) => filterTransactions(txs, { ...f, ...periodRange(p) });
+    const rows = inPeriod(period, filter).sort(byDateDesc);
+    // "Per revisar" és un filtre de la llista: els totals sempre mostren tot el període.
+    const totalsFilter = { ...filter, onlyNeedsReview: undefined };
+    // El desglossament per categories ignora el filtre de categoria (perquè es vegi el context).
+    const withoutCategory = inPeriod(period, { ...filter, categoryIds: undefined, onlyNeedsReview: undefined });
+    const prev = shiftPeriod(period, -1);
+    return {
+      rows,
+      totals: summarize(filter.onlyNeedsReview ? inPeriod(period, totalsFilter) : rows),
+      previous: prev ? summarize(inPeriod(prev, totalsFilter)) : undefined,
+      previousLabel: prev ? previousLabel(prev) : '',
+      byCategory: netExpenseByCategory(withoutCategory),
+      reviewCount: withoutCategory.filter((t) => t.needsReview && !t.hidden).length,
+    };
+  }, [data, period, filter]);
+
+  if (!data) return null;
+  const { rows } = view;
+
+  const set = (patch: Partial<ViewFilter>) => {
     setFilter((f) => ({ ...f, ...patch }));
     setLimit(PAGE);
     setSelected(new Set()); // no deixar seleccionats moviments que ja no es veuen
   };
+  const changePeriod = (p: Period) => {
+    setPeriod(p);
+    setLimit(PAGE);
+    setSelected(new Set());
+  };
+
+  const visible = rows.slice(0, limit);
+  const openTx = openId ? data.transactions.find((t) => t.id === openId) : undefined;
+  const openIndex = openTx ? visible.findIndex((t) => t.id === openTx.id) : -1;
+
+  /**
+   * Executa un canvi sobre el moviment obert. En mode "per revisar" el moviment desapareix de la
+   * llista en revisar-lo, així que passem directament al següent.
+   */
+  async function onOpenTx(action: () => Promise<void>) {
+    const nextId = visible[openIndex + 1]?.id ?? visible[openIndex - 1]?.id ?? null;
+    await action();
+    if (filter.onlyNeedsReview) setOpenId(nextId);
+  }
 
   const save = (tx: Transaction, patch: Partial<Transaction>) => run((repo) => repo.upsertTransactions([editTransaction(tx, patch)]));
 
@@ -57,20 +113,25 @@ export function TransactionsPage({ budget }: { budget: BudgetState }) {
     });
   }
 
-  const visible = rows.slice(0, limit);
-  const allVisibleSelected = visible.length > 0 && visible.every((t) => selected.has(t.id));
-
-  function toggle(id: string) {
-    setSelected((s) => {
-      const next = new Set(s);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  async function remove(tx: Transaction) {
+    const group = tx.transferGroupId ? data!.transactions.filter((t) => t.transferGroupId === tx.transferGroupId) : [tx];
+    const msg = group.length > 1 ? `Eliminar aquest moviment i la seva parella (${group.length})?` : 'Eliminar aquest moviment?';
+    if (!window.confirm(msg)) return;
+    setOpenId(null);
+    await run((repo) => repo.deleteTransactions(group.map((t) => t.id)));
   }
 
-  function toggleAll() {
-    setSelected(allVisibleSelected ? new Set() : new Set(visible.map((t) => t.id)));
+  const allVisibleSelected = visible.length > 0 && visible.every((t) => selected.has(t.id));
+  function toggleIds(ids: string[]) {
+    setSelected((s) => {
+      const next = new Set(s);
+      const allIn = ids.every((id) => next.has(id));
+      for (const id of ids) {
+        if (allIn) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
   }
 
   async function applyBulk(patch: BulkPatch) {
@@ -79,154 +140,223 @@ export function TransactionsPage({ budget }: { budget: BudgetState }) {
     setSelected(new Set());
   }
 
-  async function remove(tx: Transaction) {
-    const group = tx.transferGroupId ? data!.transactions.filter((t) => t.transferGroupId === tx.transferGroupId) : [tx];
-    const msg = group.length > 1 ? `Eliminar aquest moviment i la seva parella (${group.length})?` : 'Eliminar aquest moviment?';
-    if (!window.confirm(msg)) return;
-    await run((repo) => repo.deleteTransactions(group.map((t) => t.id)));
+  // Filtre de categoria: "" vol dir sense categoria (així ho entén filterTransactions).
+  const activeCategory = filter.categoryIds?.[0] === '' ? UNCATEGORIZED : filter.categoryIds?.[0];
+  const pickCategory = (id: string | undefined) => set({ categoryIds: id === undefined ? undefined : [id === UNCATEGORIZED ? '' : id] });
+
+  const chips: { key: string; label: string; clear: () => void }[] = [];
+  if (filter.accountIds?.length) chips.push({ key: 'acc', label: lookups.accounts.get(filter.accountIds[0])?.name ?? '?', clear: () => set({ accountIds: undefined }) });
+  if (filter.kinds?.length) chips.push({ key: 'kind', label: KIND_LABELS[filter.kinds[0]], clear: () => set({ kinds: undefined }) });
+  if (activeCategory)
+    chips.push({
+      key: 'cat',
+      label: activeCategory === UNCATEGORIZED ? 'Sense categoria' : (lookups.categories.get(activeCategory)?.name ?? '?'),
+      clear: () => set({ categoryIds: undefined }),
+    });
+  if (filter.onlyNeedsReview) chips.push({ key: 'rev', label: 'Per revisar', clear: () => set({ onlyNeedsReview: undefined }) });
+  if (filter.includeHidden) chips.push({ key: 'hid', label: 'Amb amagats', clear: () => set({ includeHidden: undefined }) });
+  const advancedCount = chips.filter((c) => c.key !== 'cat' && c.key !== 'rev').length;
+
+  if (data.transactions.length === 0) {
+    return (
+      <section>
+        <PageHeader title="Moviments" />
+        <div className="rounded-xl border border-dashed border-line-strong bg-surface">
+          <EmptyState
+            icon="upload"
+            title="Encara no hi ha moviments"
+            action={
+              <div className="flex gap-2">
+                {onNavigate && (
+                  <Button variant="primary" icon="upload" onClick={() => onNavigate('importar')}>
+                    Importar extracte
+                  </Button>
+                )}
+                <Button icon="plus" onClick={() => setCreating(true)}>
+                  Afegir a mà
+                </Button>
+              </div>
+            }
+          >
+            Importa un extracte del banc o afegeix moviments a mà per començar.
+          </EmptyState>
+        </div>
+        <NewTransactionDrawer open={creating} budget={budget} onClose={() => setCreating(false)} />
+      </section>
+    );
   }
 
   return (
     <section>
-      <div className="row-between">
-        <h2>Moviments</h2>
-        <button className="primary" onClick={() => setShowForm((s) => !s)}>
-          + Afegir moviment
-        </button>
-      </div>
-      {showForm && <TransactionForm budget={budget} onDone={() => setShowForm(false)} />}
+      <PageHeader
+        title="Moviments"
+        actions={
+          <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
+            Afegir moviment
+          </Button>
+        }
+      />
 
-      <div className="filters">
-        <input placeholder="Cerca descripció o notes" value={filter.text ?? ''} onChange={(e) => set({ text: e.target.value })} />
-        <label>
-          Des de <input type="date" value={filter.from?.slice(0, 10) ?? ''} onChange={(e) => set({ from: e.target.value ? `${e.target.value}T00:00:00` : undefined })} />
-        </label>
-        <label>
-          Fins <input type="date" value={filter.to?.slice(0, 10) ?? ''} onChange={(e) => set({ to: e.target.value ? `${e.target.value}T23:59:59` : undefined })} />
-        </label>
-        <select value={filter.accountIds?.[0] ?? ''} onChange={(e) => set({ accountIds: e.target.value ? [e.target.value] : undefined })}>
-          <option value="">Tots els comptes</option>
-          {data.accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
-        <select value={filter.kinds?.[0] ?? ''} onChange={(e) => set({ kinds: e.target.value ? [e.target.value as TransactionKind] : undefined })}>
-          <option value="">Tots els tipus</option>
-          {TRANSACTION_KINDS.map((k) => (
-            <option key={k} value={k}>
-              {KIND_LABELS[k]}
-            </option>
-          ))}
-        </select>
-        <select value={filter.categoryIds?.[0] ?? ''} onChange={(e) => set({ categoryIds: e.target.value ? [e.target.value] : undefined })}>
-          <option value="">Totes les categories</option>
-          {data.categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <label>
-          <input type="checkbox" checked={!!filter.onlyNeedsReview} onChange={(e) => set({ onlyNeedsReview: e.target.checked })} /> Per revisar
-        </label>
-        <label>
-          <input type="checkbox" checked={!!filter.includeHidden} onChange={(e) => set({ includeHidden: e.target.checked })} /> Mostrar amagats
-        </label>
+      <div className="mb-5">
+        <PeriodPicker period={period} onChange={changePeriod} defaultMonth={defaultMonth} />
       </div>
 
-      <ul className="stats">
-        <li>Ingressos <strong>{formatCents(totals.incomeCents + totals.interestCents)}</strong></li>
-        <li>Despesa real <strong>{formatCents(totals.netExpenseCents)}</strong></li>
-        <li>Estalvi <strong>{formatCents(totals.savingsCents)}</strong></li>
-        <li className="muted">{rows.length} moviments (els traspassos no compten)</li>
-      </ul>
-      <label className="muted">
-        <input type="checkbox" checked={learn} onChange={(e) => setLearn(e.target.checked)} /> En canviar una categoria, aplica-la també als moviments amb la mateixa descripció (crea una regla)
-      </label>
+      <SummaryPanel
+        totals={view.totals}
+        previous={view.previous}
+        previousLabel={view.previousLabel}
+        byCategory={view.byCategory}
+        categories={lookups.categories}
+        activeCategoryId={activeCategory}
+        onPickCategory={pickCategory}
+      />
 
-      {selected.size > 0 && (
-        <BulkEditBar count={selected.size} categories={data.categories} onApply={applyBulk} onClear={() => setSelected(new Set())} />
+      {view.reviewCount > 0 && !filter.onlyNeedsReview && (
+        <Alert
+          tone="warn"
+          className="mt-4"
+          action={
+            <Button
+              size="sm"
+              onClick={() => {
+                set({ onlyNeedsReview: true });
+                const first = filterTransactions(data.transactions, { ...filter, ...periodRange(period), onlyNeedsReview: true }).sort(byDateDesc)[0];
+                if (first) setOpenId(first.id);
+              }}
+            >
+              Revisar ara
+            </Button>
+          }
+        >
+          <span className="font-medium">{view.reviewCount} moviments per revisar</span> en aquest període: cap regla els ha pogut classificar.
+        </Alert>
       )}
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th className="select">
-                <input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} title="Seleccionar tots els visibles" />
-              </th>
-              <th>Data</th>
-              <th>Compte</th>
-              <th>Descripció</th>
-              <th>Tipus</th>
-              <th>Categoria</th>
-              <th className="num">Import</th>
-              <th>Notes</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((t) => (
-              <tr key={t.id} className={t.hidden ? 'hidden-row' : t.needsReview ? 'review-row' : ''}>
-                <td className="select">
-                  <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} aria-label="Seleccionar" />
-                </td>
-                <td className="nowrap">{formatDate(t.date)}</td>
-                <td>{lookups.accounts.get(t.accountId)?.name ?? '?'}</td>
-                <td>
-                  {t.description}
-                  {t.source !== 'import' && <span className="badge">{t.source === 'manual' ? 'manual' : 'derivat'}</span>}
-                  {t.feeCents > 0 && <span className="muted"> (comissió {formatCents(t.feeCents)})</span>}
-                </td>
-                <td>
-                  <select value={t.kind} onChange={(e) => save(t, { kind: e.target.value as TransactionKind })}>
-                    {TRANSACTION_KINDS.map((k) => (
-                      <option key={k} value={k}>
-                        {KIND_LABELS[k]}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  {t.kind === 'transfer' || t.kind === 'adjustment' ? (
-                    <span className="muted">—</span>
-                  ) : (
-                    <select value={t.categoryId ?? ''} onChange={(e) => changeCategory(t, e.target.value || undefined)}>
-                      <option value="">— sense categoria —</option>
-                      {data.categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </td>
-                <td className={`num ${t.amountCents < 0 ? 'neg' : 'pos'}`}>{formatCents(t.amountCents, t.currency)}</td>
-                <td>
-                  <input
-                    className="notes"
-                    defaultValue={t.notes ?? ''}
-                    onBlur={(e) => e.target.value !== (t.notes ?? '') && save(t, { notes: e.target.value || undefined })}
-                  />
-                </td>
-                <td className="nowrap">
-                  {t.needsReview && (
-                    <button className="link" title="És correcte: treure de 'per revisar'" onClick={() => save(t, {})}>
-                      ✓
-                    </button>
-                  )}
-                  <button className="link" title="Eliminar" onClick={() => remove(t)}>
-                    ✕
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Barra d'eines */}
+      <div className="mt-8 mb-4 flex flex-wrap items-center gap-2">
+        <div className="relative min-w-48 flex-1 sm:max-w-sm">
+          <Icon name="search" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-faint" />
+          <input className="input pl-9" placeholder="Cerca per descripció o notes" value={filter.text ?? ''} onChange={(e) => set({ text: e.target.value })} />
+        </div>
+        <Button icon="filter" onClick={() => setShowFilters((s) => !s)} className={cx(showFilters && 'bg-subtle')}>
+          Filtres
+          {advancedCount > 0 && <span className="rounded-full bg-accent px-1.5 text-[11px] text-white">{advancedCount}</span>}
+        </Button>
+        <div className="flex-1" />
+        <label className="flex items-center gap-2 text-[13px] text-ink-muted max-sm:hidden">
+          <input type="checkbox" className="checkbox" checked={allVisibleSelected} onChange={() => setSelected(allVisibleSelected ? new Set() : new Set(visible.map((t) => t.id)))} />
+          {rows.length} moviments
+        </label>
       </div>
-      {rows.length > limit && <button onClick={() => setLimit((l) => l + PAGE)}>Mostrar més ({rows.length - limit} restants)</button>}
+
+      {showFilters && (
+        <div className="mb-4 grid gap-4 rounded-xl border border-line bg-surface p-4 shadow-card sm:grid-cols-2 lg:grid-cols-4">
+          <label className="label">
+            Compte
+            <select className="input" value={filter.accountIds?.[0] ?? ''} onChange={(e) => set({ accountIds: e.target.value ? [e.target.value] : undefined })}>
+              <option value="">Tots</option>
+              {data.accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="label">
+            Tipus
+            <select className="input" value={filter.kinds?.[0] ?? ''} onChange={(e) => set({ kinds: e.target.value ? [e.target.value as TransactionKind] : undefined })}>
+              <option value="">Tots</option>
+              {TRANSACTION_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {KIND_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="label">
+            Categoria
+            <select className="input" value={filter.categoryIds?.[0] ?? '__all__'} onChange={(e) => set({ categoryIds: e.target.value === '__all__' ? undefined : [e.target.value] })}>
+              <option value="__all__">Totes</option>
+              <option value="">Sense categoria</option>
+              {data.categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex flex-col justify-end gap-2.5 text-sm">
+            <label className="flex cursor-pointer items-center justify-between gap-3">
+              Només per revisar <Switch checked={!!filter.onlyNeedsReview} onChange={(v) => set({ onlyNeedsReview: v || undefined })} />
+            </label>
+            <label className="flex cursor-pointer items-center justify-between gap-3">
+              Mostrar amagats <Switch checked={!!filter.includeHidden} onChange={(v) => set({ includeHidden: v || undefined })} />
+            </label>
+          </div>
+        </div>
+      )}
+
+      {chips.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-1.5">
+          {chips.map((c) => (
+            <button key={c.key} onClick={c.clear} className="inline-flex h-7 items-center gap-1 rounded-full bg-accent-soft pr-2 pl-3 text-xs font-medium text-accent-ink">
+              {c.label} <Icon name="x" className="size-3.5" />
+            </button>
+          ))}
+          <button className="ml-1 text-xs font-medium text-ink-muted hover:text-ink" onClick={() => set({ accountIds: undefined, kinds: undefined, categoryIds: undefined, onlyNeedsReview: undefined, includeHidden: undefined })}>
+            Netejar filtres
+          </button>
+        </div>
+      )}
+
+      {rows.length === 0 ? (
+        <div className="rounded-xl border border-line bg-surface">
+          <EmptyState icon="search" title="Cap moviment">
+            {filter.onlyNeedsReview ? 'Ja ho tens tot revisat en aquest període.' : 'No hi ha moviments amb aquests filtres en aquest període.'}
+          </EmptyState>
+        </div>
+      ) : (
+        <TransactionList
+          rows={visible}
+          lookups={lookups}
+          selected={selected}
+          activeId={openId ?? undefined}
+          onToggle={(id) => toggleIds([id])}
+          onToggleDay={toggleIds}
+          onOpen={(t) => setOpenId(t.id)}
+        />
+      )}
+      {rows.length > limit && (
+        <div className="mt-6 flex justify-center">
+          <Button onClick={() => setLimit((l) => l + PAGE)}>Mostrar més ({rows.length - limit} restants)</Button>
+        </div>
+      )}
+
+      {selected.size > 0 && <BulkEditBar count={selected.size} categories={data.categories} onApply={applyBulk} onClear={() => setSelected(new Set())} />}
+
+      {openTx && (
+        <TransactionDrawer
+          tx={openTx}
+          budget={budget}
+          learn={learn}
+          onLearnChange={setLearn}
+          onSave={(patch) => onOpenTx(() => save(openTx, patch))}
+          onChangeCategory={(id) => onOpenTx(() => changeCategory(openTx, id))}
+          onDelete={() => remove(openTx)}
+          onPrev={openIndex > 0 ? () => setOpenId(visible[openIndex - 1].id) : undefined}
+          onNext={openIndex >= 0 && openIndex < visible.length - 1 ? () => setOpenId(visible[openIndex + 1].id) : undefined}
+          onClose={() => setOpenId(null)}
+        />
+      )}
+      <NewTransactionDrawer open={creating} budget={budget} onClose={() => setCreating(false)} />
     </section>
+  );
+}
+
+function NewTransactionDrawer({ open, budget, onClose }: { open: boolean; budget: BudgetState; onClose: () => void }) {
+  return (
+    <Drawer open={open} onClose={onClose} title="Nou moviment" subtitle="Efectiu, cobraments que no passen pel banc, aportacions...">
+      <TransactionForm budget={budget} onDone={onClose} />
+    </Drawer>
   );
 }

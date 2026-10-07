@@ -2,6 +2,10 @@ import { useState } from 'react';
 import type { BudgetData } from '../application/ports';
 import { refreshBuiltInRules } from '../application/seed';
 import { LOCAL_BUDGET_ID, readStoredBudget } from '../infrastructure/keyValueRepository';
+import { Button, buttonClass } from './kit/Button';
+import { Card, CardHeader, PageHeader } from './kit/Card';
+import { Alert } from './kit/Feedback';
+import { Icon } from './kit/Icon';
 import type { BudgetState } from './useBudget';
 
 export function SettingsPage({ budget, cloud = false }: { budget: BudgetState; cloud?: boolean }) {
@@ -47,43 +51,64 @@ export function SettingsPage({ budget, cloud = false }: { budget: BudgetState; c
   }
 
   return (
-    <section>
-      <h2>Configuració</h2>
-      <div className="card form-grid">
-        <label className="wide">
-          El teu nom tal com surt als extractes
-          <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="NOM COGNOM1 COGNOM2" />
-          <span className="muted">Serveix per detectar traspassos entre comptes teus i el compte conjunt.</span>
-        </label>
-        <label className="wide">
-          Text que identifica la teva nòmina
-          <input value={employerPattern} onChange={(e) => setEmployerPattern(e.target.value)} placeholder="p.ex. MULTIPLAYER GAMES GROUP" />
-        </label>
-        <div className="wide">
-          <button className="primary" onClick={save}>
-            Desar
-          </button>
-          {saved && <span className="ok"> Desat. Ves a Regles → "Reaplicar" per actualitzar els moviments ja importats.</span>}
-        </div>
-      </div>
+    <section className="max-w-3xl">
+      <PageHeader title="Configuració" />
 
-      <h3>Còpia de seguretat</h3>
-      <p className="muted">
-        {cloud
-          ? 'Les dades es guarden al núvol (Firestore). Pots descarregar-ne una còpia quan vulguis.'
-          : 'Les dades es guarden només en aquest navegador. Fes-ne còpies de seguretat.'}
-      </p>
-      {localCopy && (
-        <p className="warning">
-          Aquest navegador té dades de la versió local ({localCopy.transactions.length} moviments, {localCopy.accounts.length} comptes).{' '}
-          <button onClick={() => restore(localCopy).catch((e: unknown) => setError(String(e)))}>Copiar-les al núvol</button>
-        </p>
-      )}
-      <button onClick={exportBackup}>Descarregar còpia (JSON)</button>{' '}
-      <label className="button">
-        Restaurar còpia
-        <input type="file" accept="application/json" hidden onChange={(e) => e.target.files?.[0] && importBackup(e.target.files[0])} />
-      </label>
+      <Card className="mb-6">
+        <CardHeader title="Detecció automàtica" subtitle="Ajuda les regles per defecte a reconèixer traspassos propis i la nòmina." />
+        <div className="space-y-5 p-5">
+          <label className="label">
+            El teu nom tal com surt als extractes
+            <input className="input" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="NOM COGNOM1 COGNOM2" />
+            <span className="hint">Serveix per detectar traspassos entre comptes teus i el compte conjunt.</span>
+          </label>
+          <label className="label">
+            Text que identifica la teva nòmina
+            <input className="input" value={employerPattern} onChange={(e) => setEmployerPattern(e.target.value)} placeholder="p.ex. MULTIPLAYER GAMES GROUP" />
+          </label>
+          {saved && <Alert tone="pos">Desat. Ves a Regles → Reaplicar per actualitzar els moviments ja importats.</Alert>}
+        </div>
+        <div className="border-t border-line px-5 py-4">
+          <Button variant="primary" onClick={save}>
+            Desar
+          </Button>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Còpia de seguretat"
+          subtitle={
+            cloud
+              ? 'Les dades es guarden al núvol (Firestore). Pots descarregar-ne una còpia quan vulguis.'
+              : 'Les dades es guarden només en aquest navegador. Fes-ne còpies de seguretat.'
+          }
+        />
+        <div className="space-y-4 p-5">
+          {localCopy && (
+            <Alert
+              tone="warn"
+              action={
+                <Button size="sm" onClick={() => restore(localCopy).catch((e: unknown) => setError(String(e)))}>
+                  Copiar-les al núvol
+                </Button>
+              }
+            >
+              Aquest navegador té dades de la versió local ({localCopy.transactions.length} moviments, {localCopy.accounts.length} comptes).
+            </Alert>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button icon="download" onClick={exportBackup}>
+              Descarregar còpia (JSON)
+            </Button>
+            <label className={buttonClass('secondary')}>
+              <Icon name="upload" />
+              Restaurar còpia
+              <input type="file" accept="application/json" hidden onChange={(e) => e.target.files?.[0] && importBackup(e.target.files[0])} />
+            </label>
+          </div>
+        </div>
+      </Card>
     </section>
   );
 }

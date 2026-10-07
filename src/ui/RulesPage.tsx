@@ -2,6 +2,12 @@ import { useState, type FormEvent } from 'react';
 import { reclassify } from '../application/importService';
 import { isValidPattern, type Rule } from '../domain/classification';
 import { TRANSACTION_KINDS, type TransactionKind } from '../domain/types';
+import { CategoryDot } from './CategoryAvatar';
+import { Button } from './kit/Button';
+import { Card, CardHeader, PageHeader } from './kit/Card';
+import { cx } from './kit/cx';
+import { Alert, Badge, Switch } from './kit/Feedback';
+import { Icon } from './kit/Icon';
 import { KIND_LABELS } from './labels';
 import { newId, type BudgetState } from './useBudget';
 
@@ -23,9 +29,50 @@ export function RulesPage({ budget }: { budget: BudgetState }) {
   const [kind, setKind] = useState<TransactionKind | ''>('');
   const [categoryId, setCategoryId] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [showBuiltIn, setShowBuiltIn] = useState(false);
   if (!data) return null;
 
-  const rules = [...data.rules].sort((a, b) => a.priority - b.priority);
+  const q = query.trim().toLowerCase();
+  const rules = [...data.rules]
+    .sort((a, b) => a.priority - b.priority)
+    .filter((r) => !q || r.name.toLowerCase().includes(q) || describe(r).toLowerCase().includes(q));
+  const mine = rules.filter((r) => !r.builtIn);
+  const builtIn = rules.filter((r) => r.builtIn);
+
+  const ruleRow = (r: Rule) => {
+    const outcome = [
+      r.then.kind && KIND_LABELS[r.then.kind],
+      r.then.categoryId && lookups.categories.get(r.then.categoryId)?.name,
+      r.then.hidden && 'amagar',
+      r.then.mirrorTo && `→ ${r.then.mirrorTo.suggestedName}`,
+    ].filter((x): x is string => !!x);
+    const category = r.then.categoryId ? lookups.categories.get(r.then.categoryId) : undefined;
+    return (
+      <li key={r.id} className={cx('group flex items-center gap-4 px-4 py-3', r.enabled === false && 'opacity-50')}>
+        <Switch checked={r.enabled !== false} onChange={(v) => run((repo) => repo.upsertRules([{ ...r, enabled: v }]))} label="Activa" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium">{r.name}</div>
+          <div className="truncate font-mono text-xs text-ink-muted">{describe(r)}</div>
+        </div>
+        <div className="flex shrink-0 flex-wrap justify-end gap-1.5 max-sm:hidden">
+          {outcome.map((o) => (
+            <Badge key={o} tone={o === category?.name ? 'accent' : 'neutral'}>
+              {o === category?.name && <CategoryDot color={category.color} className="size-2" />}
+              {o}
+            </Badge>
+          ))}
+        </div>
+        {!r.builtIn ? (
+          <button className="text-ink-faint opacity-0 transition group-hover:opacity-100 hover:text-neg" onClick={() => run((repo) => repo.deleteRules([r.id]))} aria-label="Eliminar">
+            <Icon name="trash" />
+          </button>
+        ) : (
+          <span className="w-4" />
+        )}
+      </li>
+    );
+  };
 
   async function reapply(allRules: Rule[]) {
     const keyById = Object.fromEntries(data!.accounts.map((a) => [a.id, a.importKey ?? '']));
@@ -54,97 +101,92 @@ export function RulesPage({ budget }: { budget: BudgetState }) {
 
   return (
     <section>
-      <h2>Regles de classificació</h2>
-      <p className="muted">
-        S'apliquen en importar i quan prems "Reaplicar". Per a cada moviment, guanya la primera regla (per ordre) que en defineix el tipus, i la
-        primera que en defineix la categoria.
-      </p>
-      <form className="card form-grid" onSubmit={add}>
-        <label className="wide">
-          Si la descripció {isRegex ? 'coincideix amb el patró' : 'conté'}
-          <input value={text} onChange={(e) => setText(e.target.value)} required placeholder="p.ex. MULTIPLAYER GAMES" />
-        </label>
-        <label>
-          <input type="checkbox" checked={isRegex} onChange={(e) => setIsRegex(e.target.checked)} /> Expressió regular
-        </label>
-        <label>
-          Direcció
-          <select value={direction} onChange={(e) => setDirection(e.target.value as '' | 'in' | 'out')}>
-            <option value="">Qualsevol</option>
-            <option value="in">Entren diners</option>
-            <option value="out">Surten diners</option>
-          </select>
-        </label>
-        <label>
-          Tipus
-          <select value={kind} onChange={(e) => setKind(e.target.value as TransactionKind | '')}>
-            <option value="">— no canviar —</option>
-            {TRANSACTION_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {KIND_LABELS[k]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Categoria
-          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            <option value="">— no canviar —</option>
-            {data.categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="wide">
-          <button className="primary" type="submit">
-            Afegir regla i aplicar
-          </button>{' '}
-          <button type="button" onClick={() => reapply(data.rules)}>
-            Reaplicar totes les regles
-          </button>
-        </div>
-      </form>
-      {message && <p className="ok">{message}</p>}
+      <PageHeader
+        title="Regles de classificació"
+        subtitle="S'apliquen en importar i quan prems Reaplicar. Per a cada moviment guanya la primera regla (per ordre) que en defineix el tipus, i la primera que en defineix la categoria."
+        actions={
+          <Button icon="sparkle" onClick={() => reapply(data.rules)}>
+            Reaplicar totes
+          </Button>
+        }
+      />
+      {message && (
+        <Alert tone="pos" className="mb-6" onClose={() => setMessage(null)}>
+          {message}
+        </Alert>
+      )}
 
-      <table>
-        <thead>
-          <tr>
-            <th>Activa</th>
-            <th>Regla</th>
-            <th>Condició</th>
-            <th>Resultat</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rules.map((r) => (
-            <tr key={r.id} className={r.enabled === false ? 'hidden-row' : ''}>
-              <td>
-                <input type="checkbox" checked={r.enabled !== false} onChange={(e) => run((repo) => repo.upsertRules([{ ...r, enabled: e.target.checked }]))} />
-              </td>
-              <td>
-                {r.name}
-                {r.builtIn && <span className="badge">per defecte</span>}
-              </td>
-              <td className="muted">{describe(r)}</td>
-              <td>
-                {[r.then.kind && KIND_LABELS[r.then.kind], r.then.categoryId && lookups.categories.get(r.then.categoryId)?.name, r.then.hidden && 'amagar', r.then.mirrorTo && `→ ${r.then.mirrorTo.suggestedName}`]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </td>
-              <td>
-                {!r.builtIn && (
-                  <button className="link" onClick={() => run((repo) => repo.deleteRules([r.id]))}>
-                    ✕
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <Card className="mb-8">
+        <CardHeader title="Nova regla" subtitle="Es desa i s'aplica de seguida als moviments existents (excepte els que has editat a mà)." />
+        <form className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4" onSubmit={add}>
+          <label className="label sm:col-span-2 lg:col-span-4">
+            <span className="flex items-center justify-between">
+              Si la descripció {isRegex ? 'coincideix amb el patró' : 'conté'}
+              <span className="flex items-center gap-2 text-xs font-normal text-ink-muted">
+                Expressió regular <Switch checked={isRegex} onChange={setIsRegex} label="Expressió regular" />
+              </span>
+            </span>
+            <input className={cx('input', isRegex && 'font-mono')} value={text} onChange={(e) => setText(e.target.value)} required placeholder="p.ex. MULTIPLAYER GAMES" />
+          </label>
+          <label className="label">
+            Direcció
+            <select className="input" value={direction} onChange={(e) => setDirection(e.target.value as '' | 'in' | 'out')}>
+              <option value="">Qualsevol</option>
+              <option value="in">Entren diners</option>
+              <option value="out">Surten diners</option>
+            </select>
+          </label>
+          <label className="label">
+            Llavors el tipus és
+            <select className="input" value={kind} onChange={(e) => setKind(e.target.value as TransactionKind | '')}>
+              <option value="">— no canviar —</option>
+              {TRANSACTION_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {KIND_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="label">
+            I la categoria
+            <select className="input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+              <option value="">— no canviar —</option>
+              {data.categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex items-end">
+            <Button variant="primary" type="submit" icon="plus" className="w-full">
+              Afegir i aplicar
+            </Button>
+          </div>
+        </form>
+      </Card>
+
+      <div className="mb-4 flex items-center gap-2">
+        <div className="relative max-w-sm flex-1">
+          <Icon name="search" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-faint" />
+          <input className="input pl-9" placeholder="Cerca regles" value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+      </div>
+
+      <h2 className="mb-2 text-[13px] font-semibold text-ink-muted">Les teves regles ({mine.length})</h2>
+      {mine.length > 0 ? (
+        <ul className="mb-8 divide-y divide-line rounded-xl border border-line bg-surface shadow-card">{mine.map(ruleRow)}</ul>
+      ) : (
+        <p className="mb-8 rounded-xl border border-dashed border-line-strong px-4 py-6 text-center text-sm text-ink-muted">
+          Encara no n'has creat cap. També se'n creen soles quan canvies la categoria d'un moviment.
+        </p>
+      )}
+
+      <button className="mb-2 inline-flex items-center gap-1 text-[13px] font-semibold text-ink-muted hover:text-ink" onClick={() => setShowBuiltIn((v) => !v)}>
+        <Icon name={showBuiltIn || q ? 'chevronDown' : 'chevronRight'} className="size-4" />
+        Per defecte ({builtIn.length})
+      </button>
+      {(showBuiltIn || q) && <ul className="divide-y divide-line rounded-xl border border-line bg-surface shadow-card">{builtIn.map(ruleRow)}</ul>}
     </section>
   );
 }
