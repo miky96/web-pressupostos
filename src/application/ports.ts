@@ -1,5 +1,5 @@
 import type { Rule } from '../domain/classification';
-import type { Account, BudgetSettings, Category, Transaction, Valuation } from '../domain/types';
+import type { Account, BudgetSettings, Category, Debt, Transaction, Valuation } from '../domain/types';
 
 export interface BudgetData {
   accounts: Account[];
@@ -7,6 +7,7 @@ export interface BudgetData {
   categories: Category[];
   rules: Rule[];
   valuations: Valuation[];
+  debts: Debt[];
   settings: BudgetSettings;
 }
 
@@ -23,10 +24,13 @@ export interface BudgetRepository {
   upsertTransactions(items: Transaction[]): Promise<void>;
   deleteTransactions(ids: string[]): Promise<void>;
   upsertCategories(items: Category[]): Promise<void>;
+  deleteCategories(ids: string[]): Promise<void>;
   upsertRules(items: Rule[]): Promise<void>;
   deleteRules(ids: string[]): Promise<void>;
   upsertValuations(items: Valuation[]): Promise<void>;
   deleteValuations(ids: string[]): Promise<void>;
+  upsertDebts(items: Debt[]): Promise<void>;
+  deleteDebts(ids: string[]): Promise<void>;
   saveSettings(settings: BudgetSettings): Promise<void>;
   /** Substitueix totes les dades (restaurar una còpia de seguretat). */
   replaceAll(data: BudgetData): Promise<void>;

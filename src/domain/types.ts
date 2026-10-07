@@ -99,6 +99,26 @@ export interface Category {
   parentId?: string;
 }
 
+/** Retorn (total o parcial) d'un deute. */
+export interface DebtRepayment {
+  id: string;
+  date: string;
+  amountCents: Cents;
+  note?: string;
+}
+
+/** Diners que has deixat a algú. El pendent es calcula: import - retorns. */
+export interface Debt {
+  id: string;
+  person: string;
+  amountCents: Cents;
+  reason: string;
+  /** Dia en què li vas deixar els diners (ISO local). */
+  date: string;
+  repayments: DebtRepayment[];
+  notes?: string;
+}
+
 /** Valor d'un compte en una data (per a comptes en mode 'valuations'). */
 export interface Valuation {
   id: string;

@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import type { BudgetRepository } from '../application/ports';
 import { AccountsPage } from './AccountsPage';
+import { CategoriesPage } from './CategoriesPage';
+import { DebtsPage } from './DebtsPage';
 import { ImportPage } from './ImportPage';
 import { cx } from './kit/cx';
 import { Alert } from './kit/Feedback';
@@ -13,11 +15,15 @@ import { useBudget } from './useBudget';
 const TABS: Record<string, { label: string; icon: IconName }> = {
   moviments: { label: 'Moviments', icon: 'list' },
   comptes: { label: 'Comptes', icon: 'wallet' },
+  deutes: { label: 'Deutes', icon: 'users' },
   importar: { label: 'Importar', icon: 'upload' },
+  categories: { label: 'Categories', icon: 'tag' },
   regles: { label: 'Regles', icon: 'sliders' },
   configuracio: { label: 'Configuració', icon: 'settings' },
 };
 type Tab = keyof typeof TABS;
+/** A mòbil només caben 4 pestanyes + "Més". */
+const MOBILE_PRIMARY: Tab[] = ['moviments', 'comptes', 'deutes', 'importar'];
 
 /** Present quan l'app funciona amb Firebase (hi ha un usuari autenticat). */
 export interface AccountInfo {
@@ -39,6 +45,11 @@ export function Logo({ className }: { className?: string }) {
 export function App({ repo, account }: { repo: BudgetRepository; account?: AccountInfo }) {
   const budget = useBudget(repo);
   const [tab, setTab] = useState<Tab>('moviments');
+  const [moreOpen, setMoreOpen] = useState(false);
+  const go = (t: Tab) => {
+    setTab(t);
+    setMoreOpen(false);
+  };
   const reviewCount = useMemo(() => budget.data?.transactions.filter((t) => t.needsReview && !t.hidden).length ?? 0, [budget.data]);
 
   const navItems = (Object.keys(TABS) as Tab[]).map((t) => ({ id: t, ...TABS[t], badge: t === 'moviments' ? reviewCount : 0 }));
@@ -52,7 +63,7 @@ export function App({ repo, account }: { repo: BudgetRepository; account?: Accou
           {navItems.map((n) => (
             <button
               key={n.id}
-              onClick={() => setTab(n.id)}
+              onClick={() => go(n.id)}
               className={cx(
                 'flex h-9 items-center gap-3 rounded-lg px-3 text-sm font-medium transition',
                 n.id === tab ? 'bg-accent-soft text-accent-ink' : 'text-ink-muted hover:bg-subtle hover:text-ink',
@@ -100,26 +111,58 @@ export function App({ repo, account }: { repo: BudgetRepository; account?: Accou
           </Alert>
         )}
         {!budget.data && <div className="py-20 text-center text-sm text-ink-muted">Carregant…</div>}
-        {tab === 'moviments' && <TransactionsPage budget={budget} onNavigate={setTab} />}
+        {tab === 'moviments' && <TransactionsPage budget={budget} onNavigate={go} />}
         {tab === 'comptes' && <AccountsPage budget={budget} />}
+        {tab === 'deutes' && <DebtsPage budget={budget} />}
         {tab === 'importar' && <ImportPage budget={budget} />}
+        {tab === 'categories' && <CategoriesPage budget={budget} />}
         {tab === 'regles' && <RulesPage budget={budget} />}
         {tab === 'configuracio' && <SettingsPage budget={budget} cloud={!!account} />}
       </main>
 
       {/* Barra inferior (mòbil) */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
-        {navItems.map((n) => (
-          <button
-            key={n.id}
-            onClick={() => setTab(n.id)}
-            className={cx('relative flex flex-col items-center gap-1 py-2 text-[11px] font-medium', n.id === tab ? 'text-accent' : 'text-ink-faint')}
+      {moreOpen && (
+        <div className="fixed inset-0 z-30 lg:hidden" onClick={() => setMoreOpen(false)}>
+          <div
+            className="absolute right-2 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] w-52 rounded-xl border border-line bg-surface p-1.5 shadow-pop"
+            onClick={(e) => e.stopPropagation()}
           >
-            <Icon name={n.icon} className="size-5" />
-            {n.label}
-            {n.badge > 0 && <span className="absolute top-1.5 left-1/2 ml-2 size-2 rounded-full bg-warn" />}
-          </button>
-        ))}
+            {navItems
+              .filter((n) => !MOBILE_PRIMARY.includes(n.id))
+              .map((n) => (
+                <button
+                  key={n.id}
+                  onClick={() => go(n.id)}
+                  className={cx('flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium', n.id === tab ? 'bg-accent-soft text-accent-ink' : 'text-ink hover:bg-subtle')}
+                >
+                  <Icon name={n.icon} className="size-[18px]" />
+                  {n.label}
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
+      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
+        {navItems
+          .filter((n) => MOBILE_PRIMARY.includes(n.id))
+          .map((n) => (
+            <button
+              key={n.id}
+              onClick={() => go(n.id)}
+              className={cx('relative flex flex-col items-center gap-1 py-2 text-[11px] font-medium', n.id === tab ? 'text-accent' : 'text-ink-faint')}
+            >
+              <Icon name={n.icon} className="size-5" />
+              {n.label}
+              {n.badge > 0 && <span className="absolute top-1.5 left-1/2 ml-2 size-2 rounded-full bg-warn" />}
+            </button>
+          ))}
+        <button
+          onClick={() => setMoreOpen((v) => !v)}
+          className={cx('flex flex-col items-center gap-1 py-2 text-[11px] font-medium', moreOpen || !MOBILE_PRIMARY.includes(tab) ? 'text-accent' : 'text-ink-faint')}
+        >
+          <Icon name="menu" className="size-5" />
+          Més
+        </button>
       </nav>
     </div>
   );

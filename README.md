@@ -70,23 +70,13 @@ Configuració (un sol cop):
 
 Si un desplegament falla per permisos, el missatge diu quin permís falta: afegeix el rol corresponent al compte de servei.
 
-### Protecció de `main`
-
-A `main` només s'hi arriba amb una PR, i només es pot fer merge si el check **Tests i lint** (typecheck, ESLint, tests unitaris i tests de regles) passa. En local: `npm run check` abans d'obrir la PR.
-
-Configuració a GitHub (un sol cop): *Settings → Rules → Rulesets → New branch ruleset*
-- Nom `main`, *Enforcement status*: **Active**, *Target branches*: **Include default branch**.
-- ✅ Restrict deletions · ✅ Block force pushes
-- ✅ Require a pull request before merging (*Required approvals*: 0, perquè no et pots aprovar les teves PR)
-- ✅ Require status checks to pass → *Add checks* → `Tests i lint` · ✅ Require branches to be up to date before merging
-- *Bypass list*: buida (ni tan sols l'admin se la salta).
 
 ### Model de dades
 
 ```
 users/{uid}                     { email, defaultBudgetId }
 budgets/{budgetId}              { name, members: { uid: owner|editor|viewer }, settings, seeded }
-budgets/{budgetId}/accounts|transactions|categories|rules|valuations/{id}
+budgets/{budgetId}/accounts|transactions|categories|rules|valuations|debts/{id}
 ```
 
 - El primer login crea `budgets/personal-{uid}` (id determinista: reintentar és idempotent) amb categories i regles per defecte.
@@ -95,7 +85,7 @@ budgets/{budgetId}/accounts|transactions|categories|rules|valuations/{id}
 
 ### Seguretat
 
-- Llista blanca de correus (verificats): `ALLOWED_EMAILS` a `.env.local` → `firestore.rules` generat. Qui no hi és pot fer login però no llegeix ni escriu res.
+- Llista blanca de correus (verificats). Qui no hi és pot fer login però no llegeix ni escriu res.
 - Només els membres d'un pressupost el poden llegir; `owner`/`editor` escriure-hi; ningú pot canviar `members` des del client (encara no hi ha UI per compartir).
 - Tests de les regles contra l'emulador: `npm run test:rules`. Fan servir la plantilla real amb una llista blanca de proves.
 
@@ -114,6 +104,8 @@ src/
     types.ts         Account, Transaction, Category, Valuation...
     classification.ts  Motor de regles (les regles són dades, editables des de l'app)
     balances.ts      Saldo per moviments o per valoracions (+ interès estimat)
+    categories.ts    Validació i pla per eliminar una categoria (reassigna moviments i regles)
+    debts.ts         Deutes: pendent, retorns parcials, resum per persona
     interest.ts      TAE/TIN, previsions, temps per arribar a un objectiu, rendiment real
     investments.ts   Aportat vs valor → guany
     summary.ts       Filtres i resums (ingressos, despesa real, estalvi, per categoria)
@@ -127,25 +119,6 @@ src/
 tests/             Vitest (fixture anonimitzat a tests/fixtures); tests/rules = regles a l'emulador
 ```
 
-### Decisions clau
-
-- **Imports en cèntims enters** (mai floats).
-- **Tipus de moviment**: `expense`, `income`, `transfer`, `interest`, `refund`, `reimbursement`, `adjustment`. Els traspassos no compten com a ingrés ni despesa; les devolucions i reemborsaments (p.ex. Bizums d'amics) **resten** de la despesa de la seva categoria.
-- **Classificar per descripció, no pel camp `Type`** del banc (a Revolut, `Transfer` inclou impostos, assegurances i Bizums).
-- **Id determinista per fila** (hash de compte + data + descripció + import + comissió + saldo): reimportar no duplica.
-- **Validació**: per a cada producte, `saldo anterior + Amount − Fee = Balance`. Si no quadra, avisa.
-- **Comptes que l'export no inclou** (Flexible Cash Funds, estalvi migrat): la regla crea la pota contrària del traspàs en un compte en mode `valuations`. El valor és l'última valoració manual + aportacions posteriors (+ interès estimat amb la TAE).
-- **Compte conjunt** en un altre banc: es tracta com a despesa compartida (categoria *Despeses compartides*).
-- **Tot penja d'un pressupost** (`budgetId`), no de l'usuari: preparat per a pressupostos compartits.
-
-## Privacitat
-
-Els exports reals **no s'han de pujar mai al repo** (contenen dades de tercers). Desa'ls a `private/` (ignorat per git). Per provar-los:
-
-```bash
-REVOLUT_CSV=private/export.csv OWNER_NAME="NOM COGNOMS" EMPLOYER="EMPRESA" npm run test:run
-```
-
 ## Properes passes
 
 - [x] Firebase: Auth (Google) + Firestore (`budgets/{budgetId}/...`) + regles de seguretat amb tests a l'emulador + Hosting
@@ -153,4 +126,5 @@ REVOLUT_CSV=private/export.csv OWNER_NAME="NOM COGNOMS" EMPLOYER="EMPRESA" npm r
 - [ ] Vista de gràfiques (per categoria, per mes, evolució del patrimoni)
 - [ ] Vista d'objectius (import, data, comptes vinculats, progrés i previsió)
 - [ ] Inversions en borsa: posicions (ticker, quantitat, preu) i, opcionalment, cotitzacions via API
-- [ ] Editor de categories
+- [x] Editor de categories (crear, editar, eliminar movent moviments i regles)
+- [x] Deutes: qui et deu diners, motiu, dia i retorns parcials

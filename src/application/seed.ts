@@ -17,6 +17,7 @@ export function initialData(settings: BudgetSettings = DEFAULT_SETTINGS): Budget
     categories: DEFAULT_CATEGORIES,
     rules: builtInRules(settings),
     valuations: [],
+    debts: [],
     settings,
   };
 }
@@ -25,8 +26,17 @@ export function initialData(settings: BudgetSettings = DEFAULT_SETTINGS): Budget
  * Regenera les regles per defecte (p.ex. quan canvia el nom del titular) mantenint
  * les regles de l'usuari i l'estat activat/desactivat de les per defecte.
  */
-export function refreshBuiltInRules(current: Rule[], settings: BudgetSettings): Rule[] {
-  const disabled = new Set(current.filter((r) => r.builtIn && r.enabled === false).map((r) => r.id));
-  const fresh = builtInRules(settings).map((r) => (disabled.has(r.id) ? { ...r, enabled: false } : r));
+export function refreshBuiltInRules(current: Rule[], settings: BudgetSettings, categoryIds?: Set<string>): Rule[] {
+  const previous = new Map(current.filter((r) => r.builtIn).map((r) => [r.id, r]));
+  const fresh = builtInRules(settings).map((r) => {
+    const prev = previous.get(r.id);
+    let then = r.then;
+    // Si l'usuari ha eliminat la categoria d'una regla per defecte, es manté la reassignació que es va fer.
+    if (categoryIds && then.categoryId && !categoryIds.has(then.categoryId)) {
+      const kept = prev?.then.categoryId && categoryIds.has(prev.then.categoryId) ? prev.then.categoryId : undefined;
+      then = { ...then, categoryId: kept };
+    }
+    return { ...r, then, ...(prev?.enabled === false ? { enabled: false } : {}) };
+  });
   return [...fresh, ...current.filter((r) => !r.builtIn)];
 }

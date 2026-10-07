@@ -79,6 +79,15 @@ describe('pressupostos', () => {
     await assertFails(db.doc('budgets/shared').update({ settings: {} }));
   });
 
+  it("l'owner pot gestionar deutes i esborrar categories; un altre usuari no", async () => {
+    await seedBudget('personal-alice', { alice: 'owner' });
+    await assertSucceeds(as(ALICE).doc('budgets/personal-alice/debts/d1').set({ id: 'd1', person: 'Pau', amountCents: 1000 }));
+    await assertSucceeds(as(ALICE).collection('budgets/personal-alice/debts').get());
+    await assertSucceeds(as(ALICE).doc('budgets/personal-alice/categories/oci').delete());
+    await assertFails(as(BOB).doc('budgets/personal-alice/debts/d1').get());
+    await assertFails(as(BOB).doc('budgets/personal-alice/debts/d2').set({ id: 'd2' }));
+  });
+
   it('no es poden crear subcol·leccions desconegudes ni llistar pressupostos', async () => {
     await seedBudget('personal-alice', { alice: 'owner' });
     const db = as(ALICE);

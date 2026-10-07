@@ -1,8 +1,8 @@
 import type { BudgetData, BudgetRepository } from '../application/ports';
 import type { BudgetSettings } from '../domain/types';
 
-export type CollectionName = 'accounts' | 'transactions' | 'categories' | 'rules' | 'valuations';
-export const COLLECTIONS: readonly CollectionName[] = ['accounts', 'transactions', 'categories', 'rules', 'valuations'];
+export type CollectionName = 'accounts' | 'transactions' | 'categories' | 'rules' | 'valuations' | 'debts';
+export const COLLECTIONS: readonly CollectionName[] = ['accounts', 'transactions', 'categories', 'rules', 'valuations', 'debts'];
 
 export type WriteOp =
   | { op: 'set'; collection: CollectionName; id: string; data: { id: string } }
@@ -103,10 +103,13 @@ export class CachedBudgetRepository implements BudgetRepository {
   upsertTransactions = (items: BudgetData['transactions']) => this.upsert('transactions', items);
   deleteTransactions = (ids: string[]) => this.remove('transactions', ids);
   upsertCategories = (items: BudgetData['categories']) => this.upsert('categories', items);
+  deleteCategories = (ids: string[]) => this.remove('categories', ids);
   upsertRules = (items: BudgetData['rules']) => this.upsert('rules', items);
   deleteRules = (ids: string[]) => this.remove('rules', ids);
   upsertValuations = (items: BudgetData['valuations']) => this.upsert('valuations', items);
   deleteValuations = (ids: string[]) => this.remove('valuations', ids);
+  upsertDebts = (items: BudgetData['debts']) => this.upsert('debts', items);
+  deleteDebts = (ids: string[]) => this.remove('debts', ids);
 
   async saveSettings(settings: BudgetSettings): Promise<void> {
     await this.commit([{ op: 'settings', settings }]);
@@ -116,11 +119,12 @@ export class CachedBudgetRepository implements BudgetRepository {
     const current = await this.data();
     const ops: WriteOp[] = [];
     for (const collection of COLLECTIONS) {
-      const keep = new Set((next[collection] as { id: string }[]).map((x) => x.id));
+      // Còpies antigues poden no tenir col·leccions noves (p.ex. debts).
+      const keep = new Set(((next[collection] ?? []) as { id: string }[]).map((x) => x.id));
       for (const x of current[collection] as { id: string }[]) if (!keep.has(x.id)) ops.push({ op: 'delete', collection, id: x.id });
     }
     await this.commit(ops);
-    for (const collection of COLLECTIONS) await this.upsert(collection, next[collection] as { id: string }[]);
+    for (const collection of COLLECTIONS) await this.upsert(collection, (next[collection] ?? []) as { id: string }[]);
     await this.saveSettings(next.settings);
   }
 }

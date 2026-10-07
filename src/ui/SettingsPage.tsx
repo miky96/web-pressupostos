@@ -20,7 +20,7 @@ export function SettingsPage({ budget, cloud = false }: { budget: BudgetState; c
     const settings = { ownerName: ownerName.trim(), employerPattern: employerPattern.trim() };
     await run(async (repo) => {
       await repo.saveSettings(settings);
-      const rules = refreshBuiltInRules(data!.rules, settings);
+      const rules = refreshBuiltInRules(data!.rules, settings, new Set(data!.categories.map((c) => c.id)));
       await repo.deleteRules(data!.rules.filter((r) => r.builtIn).map((r) => r.id));
       await repo.upsertRules(rules);
     });
