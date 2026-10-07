@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import type { BudgetRepository } from '../application/ports';
 import { AccountsPage } from './AccountsPage';
 import { CategoriesPage } from './CategoriesPage';
@@ -12,8 +12,12 @@ import { SettingsPage } from './SettingsPage';
 import { TransactionsPage } from './TransactionsPage';
 import { useBudget } from './useBudget';
 
+/** Recharts només es descarrega quan s'obre la pestanya de gràfiques. */
+const ChartsPage = lazy(() => import('./charts/ChartsPage'));
+
 const TABS: Record<string, { label: string; icon: IconName }> = {
   moviments: { label: 'Moviments', icon: 'list' },
+  grafiques: { label: 'Gràfiques', icon: 'trend' },
   comptes: { label: 'Comptes', icon: 'wallet' },
   deutes: { label: 'Deutes', icon: 'users' },
   importar: { label: 'Importar', icon: 'upload' },
@@ -23,7 +27,7 @@ const TABS: Record<string, { label: string; icon: IconName }> = {
 };
 type Tab = keyof typeof TABS;
 /** A mòbil només caben 4 pestanyes + "Més". */
-const MOBILE_PRIMARY: Tab[] = ['moviments', 'comptes', 'deutes', 'importar'];
+const MOBILE_PRIMARY: Tab[] = ['moviments', 'grafiques', 'comptes', 'importar'];
 
 /** Present quan l'app funciona amb Firebase (hi ha un usuari autenticat). */
 export interface AccountInfo {
@@ -112,6 +116,11 @@ export function App({ repo, account }: { repo: BudgetRepository; account?: Accou
         )}
         {!budget.data && <div className="py-20 text-center text-sm text-ink-muted">Carregant…</div>}
         {tab === 'moviments' && <TransactionsPage budget={budget} onNavigate={go} />}
+        {tab === 'grafiques' && (
+          <Suspense fallback={<div className="py-20 text-center text-sm text-ink-muted">Carregant gràfiques…</div>}>
+            <ChartsPage budget={budget} />
+          </Suspense>
+        )}
         {tab === 'comptes' && <AccountsPage budget={budget} />}
         {tab === 'deutes' && <DebtsPage budget={budget} />}
         {tab === 'importar' && <ImportPage budget={budget} />}
