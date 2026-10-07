@@ -8,6 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "check": "npm run typecheck && npm run lint && npm run test:run",
     "test": "vitest",
     "test:run": "vitest run",
     "dev:emu": "vite --mode emulator",
@@ -23,12 +26,17 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@firebase/rules-unit-testing": "^5.0.2",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "eslint": "^10.12.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "firebase-tools": "^15.32.1",
+    "globals": "^17.13.0",
     "typescript": "~5.9.2",
+    "typescript-eslint": "^8.71.1",
     "vite": "^7.1.0",
     "vitest": "^3.2.4"
   }

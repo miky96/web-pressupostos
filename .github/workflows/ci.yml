@@ -11,7 +11,8 @@ permissions:
 
 jobs:
   test:
-    name: Tests
+    # Aquest nom és el "status check" obligatori de la protecció de main: si el canvies, actualitza la regla a GitHub.
+    name: Tests i lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,9 +26,10 @@ jobs:
           distribution: temurin
           java-version: 21
       - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
       - run: npm run test:run
       - run: npm run test:rules
-      - run: npm run typecheck
 
   deploy:
     name: Desplegar a Firebase

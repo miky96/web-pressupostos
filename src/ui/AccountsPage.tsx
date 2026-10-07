@@ -189,17 +189,18 @@ function AccountDetail({ budget, account }: { budget: BudgetState; account: Acco
     }
   };
 
-  let projection: ReturnType<typeof project> = [];
-  try {
-    const months = Math.min(600, Math.max(1, Math.round(Number(years) * 12)));
-    projection = interest
-      ? project({ initialCents: perf.valueCents, monthlyContributionCents: parseUserAmount(monthly || '0'), tae: effectiveTae(interest), months }).filter(
-          (p) => p.month % 12 === 0 && p.month > 0,
-        )
-      : [];
-  } catch {
-    projection = [];
-  }
+  // Previsió any a any; si els camps del formulari encara no són vàlids, no se'n mostra cap.
+  const projection = ((): ReturnType<typeof project> => {
+    if (!interest) return [];
+    try {
+      const months = Math.min(600, Math.max(1, Math.round(Number(years) * 12)));
+      return project({ initialCents: perf.valueCents, monthlyContributionCents: parseUserAmount(monthly || '0'), tae: effectiveTae(interest), months }).filter(
+        (p) => p.month % 12 === 0 && p.month > 0,
+      );
+    } catch {
+      return [];
+    }
+  })();
 
   return (
     <div className="card">
