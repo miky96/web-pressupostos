@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { BudgetRepository, SessionService, SessionUser } from '../application/ports';
-import { App } from './App';
+import { App, Logo } from './App';
+import { Button } from './kit/Button';
+import { Alert } from './kit/Feedback';
 
 type State =
   | { status: 'checking' }
@@ -54,23 +56,31 @@ export function AuthGate({ session, emulated }: { session: SessionService; emula
   }
 
   return (
-    <div className="app">
-      <div className="card login">
-        <h1>Pressupostos</h1>
-        {emulated && <p className="warning">Mode emulador: les dades són locals i es perden en aturar-lo.</p>}
-        {(state.status === 'checking' || state.status === 'opening') && <p className="muted">Carregant…</p>}
-        {state.status === 'signedOut' && (
-          <button className="primary" onClick={signIn}>
-            Entra amb Google
-          </button>
-        )}
-        {state.status === 'denied' && (
-          <>
-            <p className="error">{state.message}</p>
-            <button onClick={() => session.signOut()}>Sortir i provar amb un altre compte</button>
-          </>
-        )}
-        {error && <p className="error">{error}</p>}
+    <div className="grid min-h-dvh place-items-center bg-canvas px-4">
+      <div className="w-full max-w-sm rounded-2xl border border-line bg-surface p-8 text-center shadow-pop">
+        <div className="mb-6 flex justify-center">
+          <Logo />
+        </div>
+        <h1 className="text-xl font-semibold">Benvingut</h1>
+        <p className="mt-1 mb-6 text-sm text-ink-muted">Controla ingressos, despeses i estalvi dels teus comptes.</p>
+        <div className="space-y-4">
+          {emulated && <Alert tone="warn">Mode emulador: les dades són locals i es perden en aturar-lo.</Alert>}
+          {(state.status === 'checking' || state.status === 'opening') && <p className="text-sm text-ink-muted">Carregant…</p>}
+          {state.status === 'signedOut' && (
+            <Button variant="primary" className="w-full" onClick={signIn}>
+              Entra amb Google
+            </Button>
+          )}
+          {state.status === 'denied' && (
+            <>
+              <Alert tone="neg">{state.message}</Alert>
+              <Button className="w-full" onClick={() => session.signOut()}>
+                Sortir i provar amb un altre compte
+              </Button>
+            </>
+          )}
+          {error && <Alert tone="neg">{error}</Alert>}
+        </div>
       </div>
     </div>
   );

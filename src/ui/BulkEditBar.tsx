@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { BulkPatch } from '../domain/transactions';
 import { TRANSACTION_KINDS, type Category, type TransactionKind } from '../domain/types';
+import { Button } from './kit/Button';
 import { KIND_LABELS } from './labels';
 
 const KEEP = '__keep__';
@@ -47,43 +48,50 @@ export function BulkEditBar({
   }
 
   return (
-    <div className="card bulk-bar">
-      <strong>{count} seleccionats</strong>
-      <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Tipus">
-        <option value={KEEP}>Tipus: no canviar</option>
-        {TRANSACTION_KINDS.map((k) => (
-          <option key={k} value={k}>
-            {KIND_LABELS[k]}
-          </option>
-        ))}
-      </select>
-      <select value={hidesCategory ? KEEP : category} disabled={hidesCategory} onChange={(e) => setCategory(e.target.value)} aria-label="Categoria">
-        <option value={KEEP}>{hidesCategory ? 'Sense categoria (traspàs/ajust)' : 'Categoria: no canviar'}</option>
-        <option value={CLEAR}>— treure la categoria —</option>
-        {categories.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name}
-          </option>
-        ))}
-      </select>
-      <select value={notesMode} onChange={(e) => setNotesMode(e.target.value as typeof notesMode)} aria-label="Notes">
-        <option value="keep">Notes: no canviar</option>
-        <option value="replace">Notes: substituir</option>
-        <option value="append">Notes: afegir</option>
-        <option value="clear">Notes: esborrar</option>
-      </select>
-      {(notesMode === 'replace' || notesMode === 'append') && (
-        <input className="notes" placeholder="Text de les notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
-      )}
-      <button className="primary" disabled={busy || !hasChanges} onClick={() => apply(patch)}>
-        Aplicar a {count}
-      </button>
-      <button disabled={busy} onClick={() => apply({})} title="Els deixa tal com estan però els treu de 'per revisar'">
-        ✓ Marcar com a revisats
-      </button>
-      <button className="link" disabled={busy} onClick={onClear}>
-        Desseleccionar
-      </button>
+    <div className="pointer-events-none fixed inset-x-0 bottom-20 z-30 flex justify-center px-3 lg:bottom-6 lg:pl-60">
+      <div className="pointer-events-auto flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2.5 shadow-pop">
+        <span className="px-1 text-sm font-semibold whitespace-nowrap">{count} seleccionats</span>
+        <div className="mx-1 hidden h-6 w-px bg-line sm:block" />
+        <select className="input h-8 w-auto text-[13px]" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Tipus">
+          <option value={KEEP}>Tipus: no canviar</option>
+          {TRANSACTION_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {KIND_LABELS[k]}
+            </option>
+          ))}
+        </select>
+        <select
+          className="input h-8 w-auto max-w-52 text-[13px]"
+          value={hidesCategory ? KEEP : category}
+          disabled={hidesCategory}
+          onChange={(e) => setCategory(e.target.value)}
+          aria-label="Categoria"
+        >
+          <option value={KEEP}>{hidesCategory ? 'Sense categoria (traspàs/ajust)' : 'Categoria: no canviar'}</option>
+          <option value={CLEAR}>— treure la categoria —</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <select className="input h-8 w-auto text-[13px]" value={notesMode} onChange={(e) => setNotesMode(e.target.value as typeof notesMode)} aria-label="Notes">
+          <option value="keep">Notes: no canviar</option>
+          <option value="replace">Notes: substituir</option>
+          <option value="append">Notes: afegir</option>
+          <option value="clear">Notes: esborrar</option>
+        </select>
+        {(notesMode === 'replace' || notesMode === 'append') && (
+          <input className="input h-8 w-40 text-[13px]" placeholder="Text de les notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        )}
+        <Button variant="primary" size="sm" disabled={busy || !hasChanges} onClick={() => apply(patch)}>
+          Aplicar
+        </Button>
+        <Button size="sm" icon="check" disabled={busy} onClick={() => apply({})} title="Els deixa tal com estan però els treu de 'per revisar'">
+          Revisats
+        </Button>
+        <Button variant="ghost" size="sm" icon="x" disabled={busy} onClick={onClear} aria-label="Desseleccionar" title="Desseleccionar" />
+      </div>
     </div>
   );
 }
