@@ -9,6 +9,7 @@ npm install
 npm run dev        # http://localhost:5173
 npm run test:run   # tests
 npm run build      # typecheck + build de producció
+npm run check      # typecheck + lint + tests (el mateix que la CI)
 npm run test:rules # regles de Firestore a l'emulador
 npm run deploy     # build + Hosting + regles
 ```
@@ -68,6 +69,17 @@ Configuració (un sol cop):
 4. Esborra el JSON descarregat de l'ordinador un cop copiat a GitHub.
 
 Si un desplegament falla per permisos, el missatge diu quin permís falta: afegeix el rol corresponent al compte de servei.
+
+### Protecció de `main`
+
+A `main` només s'hi arriba amb una PR, i només es pot fer merge si el check **Tests i lint** (typecheck, ESLint, tests unitaris i tests de regles) passa. En local: `npm run check` abans d'obrir la PR.
+
+Configuració a GitHub (un sol cop): *Settings → Rules → Rulesets → New branch ruleset*
+- Nom `main`, *Enforcement status*: **Active**, *Target branches*: **Include default branch**.
+- ✅ Restrict deletions · ✅ Block force pushes
+- ✅ Require a pull request before merging (*Required approvals*: 0, perquè no et pots aprovar les teves PR)
+- ✅ Require status checks to pass → *Add checks* → `Tests i lint` · ✅ Require branches to be up to date before merging
+- *Bypass list*: buida (ni tan sols l'admin se la salta).
 
 ### Model de dades
 
