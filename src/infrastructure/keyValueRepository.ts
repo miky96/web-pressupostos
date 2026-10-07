@@ -30,7 +30,7 @@ export function readStoredBudget(storage: KeyValueStorage, budgetId: string): Bu
   }
 }
 
-type Collection = 'accounts' | 'transactions' | 'categories' | 'rules' | 'valuations';
+type Collection = 'accounts' | 'transactions' | 'categories' | 'rules' | 'valuations' | 'debts';
 
 /**
  * Adaptador provisional: guarda tot el pressupost com un JSON a localStorage.
@@ -89,10 +89,13 @@ export class KeyValueBudgetRepository implements BudgetRepository {
   upsertTransactions = (items: BudgetData['transactions']) => this.upsert('transactions', items);
   deleteTransactions = (ids: string[]) => this.remove('transactions', ids);
   upsertCategories = (items: BudgetData['categories']) => this.upsert('categories', items);
+  deleteCategories = (ids: string[]) => this.remove('categories', ids);
   upsertRules = (items: BudgetData['rules']) => this.upsert('rules', items);
   deleteRules = (ids: string[]) => this.remove('rules', ids);
   upsertValuations = (items: BudgetData['valuations']) => this.upsert('valuations', items);
   deleteValuations = (ids: string[]) => this.remove('valuations', ids);
+  upsertDebts = (items: BudgetData['debts']) => this.upsert('debts', items);
+  deleteDebts = (ids: string[]) => this.remove('debts', ids);
 
   async saveSettings(settings: BudgetSettings): Promise<void> {
     const data = await this.loadRef();
@@ -101,7 +104,7 @@ export class KeyValueBudgetRepository implements BudgetRepository {
   }
 
   async replaceAll(data: BudgetData): Promise<void> {
-    this.cache = structuredClone(data);
+    this.cache = { ...initialData(), ...structuredClone(data) };
     this.persist();
   }
 }

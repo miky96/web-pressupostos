@@ -88,3 +88,24 @@ describe('chunk', () => {
     expect(chunk([])).toEqual([]);
   });
 });
+
+describe('deutes i categories al repositori', () => {
+  it('desa i esborra deutes i categories', async () => {
+    const { store, repo } = setup();
+    await repo.upsertDebts([{ id: 'd1', person: 'Anna', amountCents: 100, reason: '', date: '2026-09-01T00:00:00', repayments: [] }]);
+    await repo.deleteCategories(['oci']);
+    expect(store.state.debts).toHaveLength(1);
+    expect(store.state.categories.some((c) => c.id === 'oci')).toBe(false);
+    await repo.deleteDebts(['d1']);
+    expect((await repo.load()).debts).toEqual([]);
+  });
+
+  it('restaurar una còpia antiga sense deutes no falla i els buida', async () => {
+    const { store, repo } = setup();
+    await repo.upsertDebts([{ id: 'd1', person: 'Anna', amountCents: 100, reason: '', date: '2026-09-01T00:00:00', repayments: [] }]);
+    const old = initialData() as Partial<ReturnType<typeof initialData>>;
+    delete old.debts;
+    await repo.replaceAll(old as ReturnType<typeof initialData>);
+    expect(store.state.debts).toEqual([]);
+  });
+});
