@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { todayIso } from '../domain/dates';
 import { parseUserAmount } from '../domain/money';
 import { createManualTransaction, createManualTransfer } from '../domain/transactions';
-import { TRANSACTION_KINDS, type TransactionKind } from '../domain/types';
+import { isNeutralKind, TRANSACTION_KINDS, type TransactionKind } from '../domain/types';
 import { Button } from './kit/Button';
 import { cx } from './kit/cx';
 import { KIND_LABELS } from './labels';
@@ -95,7 +95,7 @@ export function TransactionForm({ budget, onDone }: { budget: BudgetState; onDon
           className="input h-12 text-xl font-semibold tabular-nums"
           inputMode="decimal"
           autoFocus
-          placeholder={kind === 'adjustment' ? 'p.ex. -12,50' : '0,00'}
+          placeholder={kind === 'adjustment' || kind === 'loan' ? 'p.ex. -12,50' : '0,00'}
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           required
@@ -143,7 +143,7 @@ export function TransactionForm({ budget, onDone }: { budget: BudgetState; onDon
         </label>
       )}
 
-      {kind !== 'transfer' && kind !== 'adjustment' && (
+      {!isNeutralKind(kind) && (
         <label className="label">
           Categoria
           <select className="input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>

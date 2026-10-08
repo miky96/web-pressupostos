@@ -1,6 +1,7 @@
 import { formatCents } from '../../domain/money';
 import { groupByDay } from '../../domain/periods';
-import type { Transaction } from '../../domain/types';
+import type { RecoveryStatus } from '../../domain/recoveries';
+import { isNeutralKind, type Transaction } from '../../domain/types';
 import { CategoryAvatar } from '../CategoryAvatar';
 import { Badge } from '../kit/Feedback';
 import { cx } from '../kit/cx';
@@ -8,11 +9,10 @@ import { Icon } from '../kit/Icon';
 import { formatDayHeading, KIND_LABELS } from '../labels';
 import type { BudgetState } from '../useBudget';
 
-const NEUTRAL_KINDS = new Set(['transfer', 'adjustment']);
 
 /** Import amb signe explícit: les entrades en verd, les despeses en el color del text. */
 export function Amount({ tx, className }: { tx: Pick<Transaction, 'amountCents' | 'currency' | 'kind'>; className?: string }) {
-  const neutral = NEUTRAL_KINDS.has(tx.kind);
+  const neutral = isNeutralKind(tx.kind);
   const text = formatCents(Math.abs(tx.amountCents), tx.currency);
   return (
     <span className={cx('amount font-semibold', neutral ? 'text-ink-muted' : tx.amountCents > 0 ? 'text-pos' : 'text-ink', className)}>
@@ -30,6 +30,7 @@ export function TransactionList({
   onToggle,
   onToggleDay,
   onOpen,
+  recoveryInfo,
 }: {
   rows: Transaction[];
   lookups: BudgetState['lookups'];
@@ -38,6 +39,8 @@ export function TransactionList({
   onToggle: (id: string) => void;
   onToggleDay: (ids: string[]) => void;
   onOpen: (tx: Transaction) => void;
+  /** Estat de recuperació de les despeses que en tenen (esperada o ja cobrada). */
+  recoveryInfo?: Map<string, RecoveryStatus>;
 }) {
   const selecting = selected.size > 0;
   const multiAccount = lookups.accounts.size > 1;
@@ -45,7 +48,7 @@ export function TransactionList({
   return (
     <div className="flex flex-col gap-5">
       {groupByDay(rows).map(({ day, items }) => {
-        const net = items.filter((t) => !t.hidden && !NEUTRAL_KINDS.has(t.kind)).reduce((s, t) => s + t.amountCents, 0);
+        const net = items.filter((t) => !t.hidden && !isNeutralKind(t.kind)).reduce((s, t) => s + t.amountCents, 0);
         const ids = items.map((t) => t.id);
         const allSelected = ids.every((id) => selected.has(id));
         return (
@@ -66,7 +69,7 @@ export function TransactionList({
                 const category = t.categoryId ? lookups.categories.get(t.categoryId) : undefined;
                 const isSel = selected.has(t.id);
                 const meta = [
-                  NEUTRAL_KINDS.has(t.kind) ? KIND_LABELS[t.kind] : (category?.name ?? 'Sense categoria'),
+                  isNeutralKind(t.kind) ? KIND_LABELS[t.kind] : (category?.name ?? 'Sense categoria'),
                   multiAccount && lookups.accounts.get(t.accountId)?.name,
                   t.date.slice(11, 16) !== '00:00' && t.date.slice(11, 16),
                 ].filter(Boolean);
@@ -98,12 +101,13 @@ export function TransactionList({
                           </Badge>
                         )}
                         {t.source === 'manual' && <Badge className="max-sm:hidden">manual</Badge>}
+                        {t.recoversTxId && <Icon name="link" className="size-3.5 shrink-0 text-ink-faint" aria-label="Enllaçat a una despesa" />}
                         {t.hidden && (
                           <Icon name="eyeOff" className="size-3.5 text-ink-faint" aria-label="Amagat" />
                         )}
                       </div>
                       <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-muted">
-                        <span className={cx('truncate', !category && !NEUTRAL_KINDS.has(t.kind) && t.needsReview && 'text-warn')}>{meta.join(' · ')}</span>
+                        <span className={cx('truncate', !category && !isNeutralKind(t.kind) && t.needsReview && 'text-warn')}>{meta.join(' · ')}</span>
                         {t.notes && (
                           <span className="flex min-w-0 items-center gap-1 text-ink-faint" title={t.notes}>
                             <Icon name="note" className="size-3.5" />
@@ -117,6 +121,8 @@ export function TransactionList({
                       {(t.kind === 'refund' || t.kind === 'reimbursement' || t.kind === 'interest') && (
                         <div className="text-[11px] text-ink-faint">{KIND_LABELS[t.kind]}</div>
                       )}
+                      {t.kind === 'loan' && <div className="text-[11px] text-ink-faint">{KIND_LABELS.loan}</div>}
+                      <RecoveryNote status={recoveryInfo?.get(t.id)} />
                       {t.feeCents > 0 && <div className="text-[11px] text-ink-faint">comissió {formatCents(t.feeCents)}</div>}
                     </div>
                   </li>
@@ -126,6 +132,16 @@ export function TransactionList({
           </section>
         );
       })}
+    </div>
+  );
+}
+
+/** "et tornen 90 €" / "pendent 30 €" sota l'import d'una despesa compartida. */
+function RecoveryNote({ status }: { status?: RecoveryStatus }) {
+  if (!status || (status.recoveredCents === 0 && status.pendingCents === 0)) return null;
+  return (
+    <div className={cx('text-[11px]', status.pendingCents > 0 ? 'text-warn' : 'text-pos')}>
+      {status.pendingCents > 0 ? `pendent ${formatCents(status.pendingCents)}` : `recuperat ${formatCents(status.recoveredCents)}`}
     </div>
   );
 }

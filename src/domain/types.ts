@@ -50,6 +50,7 @@ export type TransactionKind =
   | 'interest' // interessos / rendiments
   | 'refund' // devolució d'una compra: resta de la despesa
   | 'reimbursement' // algú et torna diners (Bizum d'amics): resta de la despesa
+  | 'loan' // diners que deixes o que et retornen d'un préstec (lligat a un deute): no és ni ingrés ni despesa
   | 'adjustment'; // ajust de saldo
 
 export const TRANSACTION_KINDS: TransactionKind[] = [
@@ -59,8 +60,13 @@ export const TRANSACTION_KINDS: TransactionKind[] = [
   'interest',
   'refund',
   'reimbursement',
+  'loan',
   'adjustment',
 ];
+
+/** Tipus que no compten ni com a ingrés ni com a despesa i no porten categoria. */
+export const NEUTRAL_KINDS: readonly TransactionKind[] = ['transfer', 'loan', 'adjustment'];
+export const isNeutralKind = (k: TransactionKind) => NEUTRAL_KINDS.includes(k);
 
 export type TransactionSource = 'import' | 'manual' | 'derived';
 
@@ -89,6 +95,15 @@ export interface Transaction {
   needsReview?: boolean;
   /** L'usuari l'ha editat: reaplicar regles no el tocarà. */
   userEdited?: boolean;
+  /**
+   * Només en devolucions i reemborsaments: la despesa original que recupera. A la vista de
+   * consum compta a la data i la categoria d'aquella despesa.
+   */
+  recoversTxId?: string;
+  /** Només en despeses: quant esperes recuperar-ne (p.ex. la part dels altres d'un sopar). */
+  expectedBackCents?: Cents;
+  /** Despesa amb recuperació esperada que ja no esperes cobrar més: el que falti és despesa teva. */
+  recoveryClosed?: boolean;
 }
 
 export interface Category {
@@ -105,6 +120,8 @@ export interface DebtRepayment {
   date: string;
   amountCents: Cents;
   note?: string;
+  /** Moviment real del retorn (p.ex. el Bizum rebut). */
+  txId?: string;
 }
 
 /** Diners que has deixat a algú. El pendent es calcula: import - retorns. */
@@ -117,6 +134,8 @@ export interface Debt {
   date: string;
   repayments: DebtRepayment[];
   notes?: string;
+  /** Moviment amb què vas deixar els diners (p.ex. el Bizum enviat). */
+  txId?: string;
 }
 
 /** Valor d'un compte en una data (per a comptes en mode 'valuations'). */

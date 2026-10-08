@@ -1,6 +1,7 @@
 import { normalizeDate } from './dates';
 import type { Cents } from './money';
-import type { Debt, DebtRepayment } from './types';
+import { editTransaction } from './transactions';
+import type { Debt, DebtRepayment, Transaction } from './types';
 
 export interface DebtInput {
   person: string;
@@ -25,6 +26,7 @@ export function saveDebt(input: DebtInput, id: string, current?: Debt): Debt {
     date: normalizeDate(input.date),
     repayments,
     notes: input.notes?.trim() || undefined,
+    txId: current?.txId,
   };
 }
 
@@ -96,4 +98,64 @@ export function knownPeople(debts: Debt[]): string[] {
   const m = new Map<string, string>();
   for (const d of debts) m.set(personKey(d.person), d.person.trim());
   return [...m.values()].sort((a, b) => a.localeCompare(b, 'ca'));
+}
+
+// --- Enllaç amb moviments reals (Bizums enviats i rebuts) ----------------------------------
+
+/**
+ * Converteix una sortida de diners (p.ex. un Bizum enviat) en un préstec: crea el deute i
+ * marca el moviment com a 'loan', que no compta com a despesa.
+ */
+export function debtFromTransaction(
+  tx: Transaction,
+  input: { person: string; reason: string; notes?: string },
+  id: string,
+): { debt: Debt; tx: Transaction } {
+  if (tx.amountCents >= 0) throw new Error('Només una sortida de diners pot ser un préstec');
+  const debt = saveDebt({ ...input, amountCents: -tx.amountCents, date: tx.date }, id);
+  return { debt: { ...debt, txId: tx.id }, tx: editTransaction(tx, { kind: 'loan', categoryId: undefined }) };
+}
+
+/** Registra com a retorn del deute una entrada real de diners (p.ex. el Bizum rebut). */
+export function linkRepaymentTx(debt: Debt, tx: Transaction, id: string): { debt: Debt; tx: Transaction } {
+  if (tx.amountCents <= 0) throw new Error('Només una entrada de diners pot ser un retorn');
+  if (debt.repayments.some((r) => r.txId === tx.id)) throw new Error('Aquest moviment ja és un retorn del deute');
+  const next = addRepayment(debt, { date: tx.date, amountCents: tx.amountCents, note: tx.description }, id);
+  return {
+    debt: { ...next, repayments: next.repayments.map((r) => (r.id === id ? { ...r, txId: tx.id } : r)) },
+    tx: editTransaction(tx, { kind: 'loan', categoryId: undefined }),
+  };
+}
+
+/**
+ * Moviments que cal tornar al seu tipus quan es desfà l'enllaç amb un deute (o s'elimina):
+ * l'origen torna a ser despesa i els retorns, reemborsaments per revisar.
+ */
+export function releaseDebtTxs(debt: Debt, txs: Transaction[], repaymentIds?: Set<string>): Transaction[] {
+  const byId = new Map(txs.map((t) => [t.id, t]));
+  const out: Transaction[] = [];
+  const origin = !repaymentIds && debt.txId ? byId.get(debt.txId) : undefined;
+  if (origin?.kind === 'loan') out.push(editTransaction(origin, { kind: 'expense' }));
+  for (const r of debt.repayments) {
+    if (repaymentIds && !repaymentIds.has(r.id)) continue;
+    const t = r.txId ? byId.get(r.txId) : undefined;
+    if (t?.kind === 'loan') out.push({ ...editTransaction(t, { kind: 'reimbursement' }), needsReview: true });
+  }
+  return out;
+}
+
+export interface DebtLink {
+  debt: Debt;
+  role: 'origin' | 'repayment';
+  repaymentId?: string;
+}
+
+/** Quins moviments estan lligats a algun deute (per mostrar-ho al detall del moviment). */
+export function debtLinksByTx(debts: Debt[]): Map<string, DebtLink> {
+  const out = new Map<string, DebtLink>();
+  for (const debt of debts) {
+    if (debt.txId) out.set(debt.txId, { debt, role: 'origin' });
+    for (const r of debt.repayments) if (r.txId) out.set(r.txId, { debt, role: 'repayment', repaymentId: r.id });
+  }
+  return out;
 }

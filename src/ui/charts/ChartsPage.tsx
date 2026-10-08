@@ -2,12 +2,14 @@ import { useMemo, useState } from 'react';
 import { categoryBreakdown, categoryTrend, endOfMonth, monthlyCashflow, monthsBetween, monthsForRange, netWorthByMonth, OTHER } from '../../domain/charts';
 import { todayIso } from '../../domain/dates';
 import { latestMonth, periodRange, shiftMonth } from '../../domain/periods';
+import { attributeForView } from '../../domain/recoveries';
 import { UNCATEGORIZED } from '../../domain/summary';
 import type { Transaction } from '../../domain/types';
 import { Button } from '../kit/Button';
 import { PageHeader } from '../kit/Card';
 import { EmptyState, Segmented } from '../kit/Feedback';
 import type { BudgetState } from '../useBudget';
+import { useReportingView, VIEW_HINT, VIEW_OPTIONS } from '../useReportingView';
 import { AccountFilter } from './AccountFilter';
 import { CashflowChart } from './CashflowChart';
 import { CategoryChart } from './CategoryChart';
@@ -43,6 +45,7 @@ export default function ChartsPage({ budget }: { budget: BudgetState }) {
   const [period, setPeriod] = useState<ChartPeriod>({ kind: 'last12' });
   const [accountIds, setAccountIds] = useState<Set<string> | null>(null);
   const [trendId, setTrendId] = useState<string | null>(null);
+  const [reportingView, setReportingView] = useReportingView();
 
   const view = useMemo(() => {
     if (!data) return null;
@@ -52,7 +55,9 @@ export default function ChartsPage({ budget }: { budget: BudgetState }) {
     if (!months.length) return { months, accounts, charts: null };
     const from = `${months[0]}-01T00:00:00`;
     const to = endOfMonth(months.at(-1)!);
-    const txs = ofAccounts.filter((t) => t.date >= from && t.date <= to);
+    // Ingressos i despeses segons la vista triada; el patrimoni sempre amb els moviments reals.
+    const effective = attributeForView(data.transactions, reportingView);
+    const txs = effective.filter((t) => (!accountIds || accountIds.has(t.accountId)) && t.date >= from && t.date <= to);
     return {
       months,
       accounts,
@@ -64,7 +69,7 @@ export default function ChartsPage({ budget }: { budget: BudgetState }) {
       netWorth: netWorthByMonth(accounts, ofAccounts, data.valuations, months, today),
       },
     };
-  }, [data, accountIds, period, today]);
+  }, [data, accountIds, period, today, reportingView]);
 
   const trendOptions = useMemo<TrendOption[]>(
     () => [
@@ -129,7 +134,10 @@ export default function ChartsPage({ budget }: { budget: BudgetState }) {
             <input type="date" className="input h-8 w-auto" value={period.to ?? ''} onChange={(e) => setPeriod({ ...period, to: e.target.value || undefined })} aria-label="Fins a" />
           </div>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex flex-wrap items-center gap-3">
+          <div title={VIEW_HINT[reportingView]}>
+            <Segmented value={reportingView} onChange={setReportingView} options={VIEW_OPTIONS} />
+          </div>
           <AccountFilter accounts={data.accounts} selected={accountIds} onChange={setAccountIds} />
         </div>
       </div>

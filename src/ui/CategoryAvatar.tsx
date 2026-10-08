@@ -1,11 +1,11 @@
-import type { Category, Transaction } from '../domain/types';
+import { isNeutralKind, type Category, type Transaction } from '../domain/types';
 import { cx } from './kit/cx';
 import { Icon } from './kit/Icon';
 
 /** Cercle amb el color i la inicial de la categoria (o una icona per a traspassos / sense categoria). */
 export function CategoryAvatar({ tx, category, className }: { tx?: Pick<Transaction, 'kind' | 'needsReview'>; category?: Category; className?: string }) {
   const base = cx('grid size-9 shrink-0 place-items-center rounded-full text-[13px] font-semibold', className);
-  if (tx?.kind === 'transfer' || tx?.kind === 'adjustment') {
+  if (tx && isNeutralKind(tx.kind)) {
     return (
       <div className={cx(base, 'bg-subtle text-ink-muted')}>
         <Icon name="arrows" />
