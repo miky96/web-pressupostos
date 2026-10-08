@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { BulkPatch } from '../domain/transactions';
-import { TRANSACTION_KINDS, type Category, type TransactionKind } from '../domain/types';
+import { isNeutralKind, TRANSACTION_KINDS, type Category, type TransactionKind } from '../domain/types';
 import { Button } from './kit/Button';
 import { KIND_LABELS } from './labels';
 
@@ -25,7 +25,7 @@ export function BulkEditBar({
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const hidesCategory = kind === 'transfer' || kind === 'adjustment';
+  const hidesCategory = kind !== KEEP && isNeutralKind(kind as TransactionKind);
   const patch: BulkPatch = {
     kind: kind === KEEP ? undefined : (kind as TransactionKind),
     categoryId: hidesCategory || category === KEEP ? undefined : category === CLEAR ? null : category,

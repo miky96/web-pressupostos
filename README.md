@@ -105,7 +105,8 @@ src/
     classification.ts  Motor de regles (les regles són dades, editables des de l'app)
     balances.ts      Saldo per moviments o per valoracions (+ interès estimat)
     categories.ts    Validació i pla per eliminar una categoria (reassigna moviments i regles)
-    debts.ts         Deutes: pendent, retorns parcials, resum per persona
+    debts.ts         Deutes: pendent, retorns parcials, resum per persona, enllaç amb Bizums
+    recoveries.ts    Devolucions/Bizums enllaçats a la despesa, "espero recuperar", vista consum vs caixa, suggeriments
     interest.ts      TAE/TIN, previsions, temps per arribar a un objectiu, rendiment real
     investments.ts   Aportat vs valor → guany
     summary.ts       Filtres i resums (ingressos, despesa real, estalvi, per categoria)
@@ -123,8 +124,9 @@ tests/             Vitest (fixture anonimitzat a tests/fixtures); tests/rules = 
 
 - [x] Firebase: Auth (Google) + Firestore (`budgets/{budgetId}/...`) + regles de seguretat amb tests a l'emulador + Hosting
 - [x] Desplegament automàtic amb GitHub Actions
-- [ ] Vista de gràfiques (per categoria, per mes, evolució del patrimoni)
+- [x] Vista de gràfiques (per categoria, per mes, evolució del patrimoni)
 - [ ] Vista d'objectius (import, data, comptes vinculats, progrés i previsió)
 - [ ] Inversions en borsa: posicions (ticker, quantitat, preu) i, opcionalment, cotitzacions via API
 - [x] Editor de categories (crear, editar, eliminar movent moviments i regles)
 - [x] Deutes: qui et deu diners, motiu, dia i retorns parcials
+- [x] Recuperacions: devolucions i Bizums enllaçats a la compra, despeses compartides amb pendent de cobrar, deutes creats des d'un Bizum enviat i saldats amb Bizums rebuts; vista "Consum real" / "Flux de caixa"

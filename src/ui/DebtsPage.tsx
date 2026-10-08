@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { todayIso } from '../domain/dates';
-import { addRepayment, isSettled, knownPeople, lastRepaymentDate, pendingCents, removeRepayment, repaidCents, saveDebt, summarizeDebts } from '../domain/debts';
+import { addRepayment, isSettled, knownPeople, lastRepaymentDate, linkRepaymentTx, pendingCents, releaseDebtTxs, removeRepayment, repaidCents, saveDebt, summarizeDebts } from '../domain/debts';
+import { pendingRecoveries, setRecoveryClosed, suggestRepaymentTxs, type RecoveryStatus } from '../domain/recoveries';
 import { formatCents, parseUserAmount } from '../domain/money';
 import type { Debt } from '../domain/types';
 import { Button } from './kit/Button';
@@ -37,7 +38,9 @@ export function DebtsPage({ budget }: { budget: BudgetState }) {
   const [showSettled, setShowSettled] = useState(false);
   const debts = useMemo(() => data?.debts ?? [], [data]);
   const summary = useMemo(() => summarizeDebts(debts), [debts]);
+  const shared = useMemo(() => pendingRecoveries(data?.transactions ?? []), [data]);
   if (!data) return null;
+  const sharedPending = shared.reduce((s, r) => s + r.pendingCents, 0);
 
   const settled = debts.filter(isSettled).sort((a, b) => (lastRepaymentDate(b) ?? b.date).localeCompare(lastRepaymentDate(a) ?? a.date));
   const openDebt = open?.mode === 'view' ? debts.find((d) => d.id === open.id) : undefined;
@@ -79,7 +82,7 @@ export function DebtsPage({ budget }: { budget: BudgetState }) {
     <section className="max-w-4xl">
       <PageHeader
         title="Deutes"
-        subtitle="Diners que has deixat a algú. Apunta qui, quant, per què i quan, i registra els retorns a mesura que te'ls fan."
+        subtitle="Diners que t'han de tornar: préstecs (pots crear-los des d'un Bizum enviat) i despeses que has pagat per altres. Enllaça els Bizums que et fan perquè no comptin com a ingrés."
         actions={
           <Button variant="primary" icon="plus" onClick={() => setOpen({ mode: 'new' })}>
             Nou deute
@@ -87,11 +90,13 @@ export function DebtsPage({ budget }: { budget: BudgetState }) {
         }
       />
 
+      {shared.length > 0 && <SharedExpenses items={shared} total={sharedPending} budget={budget} />}
+
       {debts.length === 0 ? (
         <div className="rounded-xl border border-dashed border-line-strong bg-surface">
           <EmptyState
             icon="users"
-            title="Ningú et deu diners"
+            title={shared.length ? 'Cap préstec pendent' : 'Ningú et deu diners'}
             action={
               <Button variant="primary" icon="plus" onClick={() => setOpen({ mode: 'new' })}>
                 Apuntar un deute
@@ -233,6 +238,31 @@ function DebtDrawer({ budget, debt, onClose }: { budget: BudgetState; debt: Debt
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  const txs = budget.data?.transactions ?? [];
+  const origin = debt.txId ? txs.find((t) => t.id === debt.txId) : undefined;
+  const candidates = settled ? [] : suggestRepaymentTxs(debt, txs, budget.data?.debts ?? []);
+
+  async function linkTx(tx: (typeof txs)[number]) {
+    try {
+      const r = linkRepaymentTx(debt, tx, newId('rep'));
+      await budget.run(async (repo) => {
+        await repo.upsertDebts([r.debt]);
+        await repo.upsertTransactions([r.tx]);
+      });
+      setAmount(centsToInput(pendingCents(r.debt)));
+    } catch (err) {
+      setError(errorText(err));
+    }
+  }
+
+  async function dropRepayment(id: string) {
+    const released = releaseDebtTxs(debt, txs, new Set([id]));
+    await budget.run(async (repo) => {
+      await repo.upsertDebts([removeRepayment(debt, id)]);
+      if (released.length) await repo.upsertTransactions(released);
+    });
+  }
+
   async function repay(amountCents: number) {
     try {
       const next = addRepayment(debt, { date, amountCents, note }, newId('rep'));
@@ -254,8 +284,13 @@ function DebtDrawer({ budget, debt, onClose }: { budget: BudgetState; debt: Debt
   }
 
   async function remove() {
-    if (!window.confirm(`Eliminar el deute de ${debt.person} (${formatCents(debt.amountCents)})?`)) return;
-    await budget.run((repo) => repo.deleteDebts([debt.id]));
+    const released = releaseDebtTxs(debt, txs);
+    const extra = released.length ? `\n\nEls ${released.length} moviments enllaçats tornaran a comptar com a despesa o reemborsament.` : '';
+    if (!window.confirm(`Eliminar el deute de ${debt.person} (${formatCents(debt.amountCents)})?${extra}`)) return;
+    await budget.run(async (repo) => {
+      await repo.deleteDebts([debt.id]);
+      if (released.length) await repo.upsertTransactions(released);
+    });
     onClose();
   }
 
@@ -303,6 +338,15 @@ function DebtDrawer({ budget, debt, onClose }: { budget: BudgetState; debt: Debt
                 <dt className="text-ink-muted">Dia</dt>
                 <dd>{formatLongDate(debt.date)}</dd>
               </div>
+              {origin && (
+                <div className="flex justify-between gap-4 py-2">
+                  <dt className="text-ink-muted">Moviment</dt>
+                  <dd className="flex min-w-0 items-center gap-1.5 truncate">
+                    <Icon name="link" className="size-3.5 shrink-0 text-ink-faint" />
+                    <span className="truncate">{origin.description}</span>
+                  </dd>
+                </div>
+              )}
               <div className="flex justify-between py-2">
                 <dt className="text-ink-muted">Retornat</dt>
                 <dd className="amount font-medium text-pos">{formatCents(repaidCents(debt))}</dd>
@@ -330,8 +374,28 @@ function DebtDrawer({ budget, debt, onClose }: { budget: BudgetState; debt: Debt
                   <input className="input" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Import (€)" required aria-label="Import retornat" />
                   <Button type="submit" icon="plus" aria-label="Afegir retorn" title="Afegir retorn" />
                 </div>
-                <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Nota (opcional): Bizum, efectiu..." />
+                <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Nota (opcional): efectiu..." />
               </form>
+              {candidates.length > 0 && (
+                <div className="space-y-2 pt-2">
+                  <h4 className="text-xs font-semibold text-ink-muted">O enllaça un Bizum o una transferència rebuda</h4>
+                  <ul className="divide-y divide-line rounded-lg border border-line">
+                    {candidates.map((t) => (
+                      <li key={t.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-medium">{t.description}</div>
+                          <div className="text-xs text-ink-muted">{formatDate(t.date)}</div>
+                        </div>
+                        <span className="amount font-medium text-pos">{formatCents(t.amountCents)}</span>
+                        <Button size="sm" icon="link" onClick={() => linkTx(t)}>
+                          Enllaçar
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="hint">Així el Bizum no compta com a ingrés ni com a devolució: només salda el deute.</p>
+                </div>
+              )}
             </section>
           )}
 
@@ -344,11 +408,14 @@ function DebtDrawer({ budget, debt, onClose }: { budget: BudgetState; debt: Debt
                 {debt.repayments.map((r) => (
                   <li key={r.id} className="group flex items-center gap-3 px-3 py-2 text-sm">
                     <span className="text-ink-muted">{formatDate(r.date)}</span>
-                    <span className="flex-1 truncate text-xs text-ink-faint">{r.note}</span>
+                    <span className="flex min-w-0 flex-1 items-center gap-1 truncate text-xs text-ink-faint">
+                      {r.txId && <Icon name="link" className="size-3.5 shrink-0" aria-label="Enllaçat a un moviment" />}
+                      <span className="truncate">{r.note}</span>
+                    </span>
                     <span className="amount font-medium text-pos">{formatCents(r.amountCents)}</span>
                     <button
                       className="text-ink-faint opacity-0 group-hover:opacity-100 hover:text-neg max-lg:opacity-100"
-                      onClick={() => budget.run((repo) => repo.upsertDebts([removeRepayment(debt, r.id)]))}
+                      onClick={() => dropRepayment(r.id)}
                       aria-label="Eliminar retorn"
                     >
                       <Icon name="trash" />
@@ -361,5 +428,41 @@ function DebtDrawer({ budget, debt, onClose }: { budget: BudgetState; debt: Debt
         </div>
       )}
     </Drawer>
+  );
+}
+
+/** Despeses que has pagat per altres i de les quals encara esperes cobrar una part. */
+function SharedExpenses({ items, total, budget }: { items: RecoveryStatus[]; total: number; budget: BudgetState }) {
+  return (
+    <Card className="mb-8">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <div>
+          <div className="font-semibold">Despeses compartides pendents</div>
+          <div className="text-xs text-ink-muted">Enllaça els Bizums des del detall del moviment a Moviments.</div>
+        </div>
+        <div className="amount text-lg font-semibold">{formatCents(total)}</div>
+      </div>
+      <ul className="divide-y divide-line">
+        {items.map((s) => (
+          <li key={s.expense.id} className="flex items-center gap-4 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">{s.expense.description}</div>
+              <div className="mt-0.5 text-xs text-ink-muted">
+                {formatDate(s.expense.date)} · recuperat {formatCents(s.recoveredCents)} de {formatCents(s.expectedCents)}
+              </div>
+            </div>
+            <div className="amount text-sm font-semibold">{formatCents(s.pendingCents)}</div>
+            <Button
+              size="sm"
+              variant="ghost"
+              title="Ja no espero cobrar-ne més: el que falta passa a ser despesa meva"
+              onClick={() => budget.run((repo) => repo.upsertTransactions([setRecoveryClosed(s.expense, true)]))}
+            >
+              Tancar
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }

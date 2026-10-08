@@ -8,6 +8,7 @@ export const KIND_LABELS: Record<TransactionKind, string> = {
   interest: 'Interessos',
   refund: 'Devolució',
   reimbursement: 'Reemborsament',
+  loan: 'Préstec',
   adjustment: 'Ajust',
 };
 

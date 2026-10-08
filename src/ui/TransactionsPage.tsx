@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react';
 import { reclassify } from '../application/importService';
 import type { Rule } from '../domain/classification';
 import { todayIso } from '../domain/dates';
+import { summarizeDebts } from '../domain/debts';
 import { latestMonth, periodRange, shiftPeriod, type Period } from '../domain/periods';
+import { attributeForView, cleanupLinks, pendingRecoveries, recoveriesAttributedElsewhere, recoveriesByExpense, recoveryStatus } from '../domain/recoveries';
 import { filterTransactions, netExpenseByCategory, summarize, UNCATEGORIZED, type TransactionFilter } from '../domain/summary';
 import { bulkEditTransactions, editTransaction, type BulkPatch } from '../domain/transactions';
 import { TRANSACTION_KINDS, type Transaction, type TransactionKind } from '../domain/types';
@@ -11,7 +13,7 @@ import { Button } from './kit/Button';
 import { PageHeader } from './kit/Card';
 import { cx } from './kit/cx';
 import { Drawer } from './kit/Drawer';
-import { Alert, EmptyState, Switch } from './kit/Feedback';
+import { Alert, EmptyState, Segmented, Switch } from './kit/Feedback';
 import { Icon } from './kit/Icon';
 import { KIND_LABELS, previousLabel } from './labels';
 import { TransactionForm } from './TransactionForm';
@@ -20,15 +22,19 @@ import { SummaryPanel } from './transactions/SummaryPanel';
 import { TransactionDrawer } from './transactions/TransactionDrawer';
 import { TransactionList } from './transactions/TransactionList';
 import { newId, type BudgetState } from './useBudget';
+import { useReportingView, VIEW_HINT, VIEW_OPTIONS } from './useReportingView';
 
 const PAGE = 150;
 
 /** Filtres de la vista; les dates les posa el període. */
 type ViewFilter = Omit<TransactionFilter, 'from' | 'to'>;
 
+/** Entrades de diners on la categoria sol venir de la despesa que recuperen. */
+const isIncoming = (t: Transaction) => t.amountCents > 0 && (t.kind === 'refund' || t.kind === 'reimbursement');
+
 const byDateDesc = (a: Transaction, b: Transaction) => b.date.localeCompare(a.date);
 
-export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; onNavigate?: (tab: 'importar' | 'comptes') => void }) {
+export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; onNavigate?: (tab: 'importar' | 'comptes' | 'deutes') => void }) {
   const { data, run, lookups } = budget;
   const [chosenPeriod, setPeriod] = useState<Period | null>(null);
   const [filter, setFilter] = useState<ViewFilter>({});
@@ -36,30 +42,45 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
   const [limit, setLimit] = useState(PAGE);
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [learn, setLearn] = useState(true);
+  // "Aplicar als moviments iguals": activat per defecte en despeses, però no en entrades de diners
+  // (devolucions, Bizums rebuts...), on la descripció és genèrica ("Money added via BIZUM") i una
+  // regla canviaria la categoria de tots els Bizums. Cada cas recorda la seva tria.
+  const [learnExpense, setLearnExpense] = useState(true);
+  const [learnIncoming, setLearnIncoming] = useState(false);
+  const learnFor = (tx: Transaction) => (isIncoming(tx) ? learnIncoming : learnExpense);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [reportingView, setReportingView] = useReportingView();
 
   const defaultMonth = useMemo(() => latestMonth(data?.transactions ?? [], todayIso()), [data]);
   const period = useMemo<Period>(() => chosenPeriod ?? { kind: 'month', month: defaultMonth }, [chosenPeriod, defaultMonth]);
 
   const view = useMemo(() => {
     const txs = data?.transactions ?? [];
-    const inPeriod = (p: Period, f: ViewFilter) => filterTransactions(txs, { ...f, ...periodRange(p) });
+    // Els llistats mostren els moviments reals; els totals, la vista triada (consum o caixa).
+    const effective = attributeForView(txs, reportingView);
+    const inPeriod = (p: Period, f: ViewFilter, from = txs) => filterTransactions(from, { ...f, ...periodRange(p) });
     const rows = inPeriod(period, filter).sort(byDateDesc);
     // "Per revisar" és un filtre de la llista: els totals sempre mostren tot el període.
     const totalsFilter = { ...filter, onlyNeedsReview: undefined };
     // El desglossament per categories ignora el filtre de categoria (perquè es vegi el context).
     const withoutCategory = inPeriod(period, { ...filter, categoryIds: undefined, onlyNeedsReview: undefined });
     const prev = shiftPeriod(period, -1);
+    const index = recoveriesByExpense(txs);
+    const recoveryInfo = new Map(
+      txs.filter((t) => t.expectedBackCents || index.has(t.id)).map((t) => [t.id, recoveryStatus(t, index.get(t.id))]),
+    );
     return {
       rows,
-      totals: summarize(filter.onlyNeedsReview ? inPeriod(period, totalsFilter) : rows),
-      previous: prev ? summarize(inPeriod(prev, totalsFilter)) : undefined,
+      totals: summarize(inPeriod(period, totalsFilter, effective)),
+      previous: prev ? summarize(inPeriod(prev, totalsFilter, effective)) : undefined,
       previousLabel: prev ? previousLabel(prev) : '',
-      byCategory: netExpenseByCategory(withoutCategory),
+      byCategory: netExpenseByCategory(inPeriod(period, { ...filter, categoryIds: undefined, onlyNeedsReview: undefined }, effective)),
       reviewCount: withoutCategory.filter((t) => t.needsReview && !t.hidden).length,
+      elsewhereCents: reportingView === 'consumption' ? recoveriesAttributedElsewhere(txs, periodRange(period)) : 0,
+      pending: pendingRecoveries(txs),
+      recoveryInfo,
     };
-  }, [data, period, filter]);
+  }, [data, period, filter, reportingView]);
 
   if (!data) return null;
   const { rows } = view;
@@ -95,7 +116,7 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
   async function changeCategory(tx: Transaction, categoryId: string | undefined) {
     await run(async (repo) => {
       await repo.upsertTransactions([editTransaction(tx, { categoryId })]);
-      if (!learn || !categoryId || tx.source !== 'import') return;
+      if (!learnFor(tx) || !categoryId || tx.source !== 'import') return;
       const rule: Rule = {
         id: newId('rule'),
         name: `"${tx.description}" → ${lookups.categories.get(categoryId)?.name ?? categoryId}`,
@@ -118,7 +139,14 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
     const msg = group.length > 1 ? `Eliminar aquest moviment i la seva parella (${group.length})?` : 'Eliminar aquest moviment?';
     if (!window.confirm(msg)) return;
     setOpenId(null);
-    await run((repo) => repo.deleteTransactions(group.map((t) => t.id)));
+    const ids = group.map((t) => t.id);
+    // Les devolucions i els deutes que hi apuntaven es mantenen, però sense l'enllaç.
+    const links = cleanupLinks(new Set(ids), data!.transactions, data!.debts);
+    await run(async (repo) => {
+      await repo.deleteTransactions(ids);
+      if (links.txs.length) await repo.upsertTransactions(links.txs);
+      if (links.debts.length) await repo.upsertDebts(links.debts);
+    });
   }
 
   const allVisibleSelected = visible.length > 0 && visible.every((t) => selected.has(t.id));
@@ -197,8 +225,11 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
         }
       />
 
-      <div className="mb-5">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <PeriodPicker period={period} onChange={changePeriod} defaultMonth={defaultMonth} />
+        <div title={VIEW_HINT[reportingView]}>
+          <Segmented value={reportingView} onChange={setReportingView} options={VIEW_OPTIONS} />
+        </div>
       </div>
 
       <SummaryPanel
@@ -209,6 +240,11 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
         categories={lookups.categories}
         activeCategoryId={activeCategory}
         onPickCategory={pickCategory}
+        reportingView={reportingView}
+        elsewhereCents={view.elsewhereCents}
+        pendingRecoveryCents={view.pending.reduce((s, p) => s + p.pendingCents, 0)}
+        pendingDebtCents={summarizeDebts(data.debts).pendingCents}
+        onOpenPending={onNavigate ? () => onNavigate('deutes') : undefined}
       />
 
       {view.reviewCount > 0 && !filter.onlyNeedsReview && (
@@ -324,6 +360,7 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
           onToggle={(id) => toggleIds([id])}
           onToggleDay={toggleIds}
           onOpen={(t) => setOpenId(t.id)}
+          recoveryInfo={view.recoveryInfo}
         />
       )}
       {rows.length > limit && (
@@ -338,14 +375,15 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
         <TransactionDrawer
           tx={openTx}
           budget={budget}
-          learn={learn}
-          onLearnChange={setLearn}
+          learn={learnFor(openTx)}
+          onLearnChange={isIncoming(openTx) ? setLearnIncoming : setLearnExpense}
           onSave={(patch) => onOpenTx(() => save(openTx, patch))}
           onChangeCategory={(id) => onOpenTx(() => changeCategory(openTx, id))}
           onDelete={() => remove(openTx)}
           onPrev={openIndex > 0 ? () => setOpenId(visible[openIndex - 1].id) : undefined}
           onNext={openIndex >= 0 && openIndex < visible.length - 1 ? () => setOpenId(visible[openIndex + 1].id) : undefined}
           onClose={() => setOpenId(null)}
+          onOpenTx={setOpenId}
         />
       )}
       <NewTransactionDrawer open={creating} budget={budget} onClose={() => setCreating(false)} />

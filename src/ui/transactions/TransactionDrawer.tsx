@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { formatCents } from '../../domain/money';
-import { TRANSACTION_KINDS, type Category, type Transaction, type TransactionKind } from '../../domain/types';
+import { isNeutralKind, TRANSACTION_KINDS, type Category, type Transaction, type TransactionKind } from '../../domain/types';
 import { CategoryDot } from '../CategoryAvatar';
 import { Button } from '../kit/Button';
 import { cx } from '../kit/cx';
@@ -8,6 +8,8 @@ import { Drawer } from '../kit/Drawer';
 import { Alert, Badge, Switch } from '../kit/Feedback';
 import { formatLongDate, KIND_LABELS } from '../labels';
 import type { BudgetState } from '../useBudget';
+import { isRecovery } from '../../domain/recoveries';
+import { RecoverySection } from './RecoverySection';
 import { Amount } from './TransactionList';
 
 const INCOME_KINDS: TransactionKind[] = ['income', 'interest'];
@@ -32,6 +34,7 @@ export function TransactionDrawer({
   onPrev,
   onNext,
   onClose,
+  onOpenTx,
 }: {
   tx: Transaction;
   budget: BudgetState;
@@ -43,12 +46,17 @@ export function TransactionDrawer({
   onPrev?: () => void;
   onNext?: () => void;
   onClose: () => void;
+  /** Obre un altre moviment (p.ex. la despesa enllaçada). */
+  onOpenTx: (id: string) => void;
 }) {
   const { data, lookups } = budget;
   const [showAllCats, setShowAllCats] = useState(false);
   const account = lookups.accounts.get(tx.accountId);
-  const noCategory = tx.kind === 'transfer' || tx.kind === 'adjustment';
+  const noCategory = isNeutralKind(tx.kind);
   const preferred: Category['kind'] = INCOME_KINDS.includes(tx.kind) ? 'income' : 'expense';
+  // Una entrada per enllaçar (Bizum, devolució) es resol enllaçant-la: la categoria ve de la despesa.
+  const linkFirst = isRecovery(tx) && !tx.recoversTxId;
+  const recovery = <RecoverySection key={tx.id} tx={tx} budget={budget} onOpenTx={onOpenTx} />;
   const categories = (data?.categories ?? []).filter((c) => showAllCats || c.kind === preferred || c.id === tx.categoryId);
 
   return (
@@ -108,6 +116,8 @@ export function TransactionDrawer({
           </select>
         </label>
 
+        {linkFirst && recovery}
+
         {!noCategory && (
           <div>
             <div className="mb-2 flex items-center justify-between">
@@ -146,6 +156,8 @@ export function TransactionDrawer({
             )}
           </div>
         )}
+
+        {!linkFirst && recovery}
 
         <label className="label">
           Notes

@@ -119,7 +119,7 @@ export function planImport(result: ImportResult, ctx: ImportContext): ImportPlan
   });
 
   const fresh = txs.filter((t) => !ctx.existingIds.has(t.id));
-  const byKind = { expense: 0, income: 0, transfer: 0, interest: 0, refund: 0, reimbursement: 0, adjustment: 0 };
+  const byKind = { expense: 0, income: 0, transfer: 0, interest: 0, refund: 0, reimbursement: 0, loan: 0, adjustment: 0 };
   for (const t of fresh) byKind[t.kind]++;
 
   return {

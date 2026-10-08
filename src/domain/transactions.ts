@@ -1,6 +1,6 @@
 import { normalizeDate } from './dates';
 import type { Cents } from './money';
-import type { Account, Transaction, TransactionKind } from './types';
+import { isNeutralKind, type Account, type Transaction, type TransactionKind } from './types';
 
 /** Tipus on entren diners (import positiu). */
 const INFLOW_KINDS: TransactionKind[] = ['income', 'interest', 'refund', 'reimbursement'];
@@ -8,7 +8,7 @@ const INFLOW_KINDS: TransactionKind[] = ['income', 'interest', 'refund', 'reimbu
 export interface ManualTransactionInput {
   accountId: string;
   date: string;
-  /** Import en positiu: el signe el decideix el tipus. Per a 'adjustment' s'accepta amb signe. */
+  /** Import en positiu: el signe el decideix el tipus. Per a 'adjustment' i 'loan' s'accepta amb signe. */
   amountCents: Cents;
   description: string;
   kind: Exclude<TransactionKind, 'transfer'>;
@@ -17,7 +17,7 @@ export interface ManualTransactionInput {
 }
 
 export function signedAmountFor(kind: TransactionKind, amountCents: Cents): Cents {
-  if (kind === 'adjustment' || kind === 'transfer') return amountCents;
+  if (kind === 'adjustment' || kind === 'transfer' || kind === 'loan') return amountCents;
   const abs = Math.abs(amountCents);
   return INFLOW_KINDS.includes(kind) ? abs : -abs;
 }
@@ -84,6 +84,12 @@ export function editTransaction(tx: Transaction, patch: Partial<Omit<Transaction
   if (patch.kind && patch.amountCents === undefined && tx.source === 'manual') {
     next.amountCents = signedAmountFor(patch.kind, tx.amountCents);
   }
+  // Els enllaços de recuperació només tenen sentit en el tipus que toca.
+  if (next.kind !== 'refund' && next.kind !== 'reimbursement') delete next.recoversTxId;
+  if (next.kind !== 'expense') {
+    delete next.expectedBackCents;
+    delete next.recoveryClosed;
+  }
   return next;
 }
 
@@ -113,7 +119,7 @@ export function bulkEditTransactions(txs: Transaction[], patch: BulkPatch): Tran
       p.notes = patch.appendNotes && tx.notes && text ? `${tx.notes} · ${text}` : text || (patch.appendNotes ? tx.notes : undefined);
     }
     const next = editTransaction(tx, p);
-    if (next.kind === 'transfer' || next.kind === 'adjustment') delete next.categoryId;
+    if (isNeutralKind(next.kind)) delete next.categoryId;
     return next;
   });
 }

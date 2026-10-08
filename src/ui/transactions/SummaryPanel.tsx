@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { formatCents, type Cents } from '../../domain/money';
 import { relativeChange } from '../../domain/periods';
 import { UNCATEGORIZED, type PeriodSummary } from '../../domain/summary';
+import type { ReportingView } from '../../domain/recoveries';
 import type { Category } from '../../domain/types';
 import { CategoryDot } from '../CategoryAvatar';
 import { Card } from '../kit/Card';
@@ -46,6 +47,11 @@ export function SummaryPanel({
   categories,
   activeCategoryId,
   onPickCategory,
+  reportingView,
+  elsewhereCents = 0,
+  pendingRecoveryCents = 0,
+  pendingDebtCents = 0,
+  onOpenPending,
 }: {
   totals: PeriodSummary;
   previous?: PeriodSummary;
@@ -54,7 +60,14 @@ export function SummaryPanel({
   categories: Map<string, Category>;
   activeCategoryId?: string;
   onPickCategory: (id: string | undefined) => void;
+  reportingView: ReportingView;
+  /** Recuperacions d'aquest període que la vista de consum compta al mes de la compra. */
+  elsewhereCents?: Cents;
+  pendingRecoveryCents?: Cents;
+  pendingDebtCents?: Cents;
+  onOpenPending?: () => void;
 }) {
+  const pendingTotal = pendingRecoveryCents + pendingDebtCents;
   const [showAll, setShowAll] = useState(false);
   const income = totals.incomeCents + totals.interestCents;
   const prevIncome = previous && previous.incomeCents + previous.interestCents;
@@ -67,7 +80,7 @@ export function SummaryPanel({
   const nameOf = (id: string) => (id === UNCATEGORIZED ? 'Sense categoria' : (categories.get(id)?.name ?? id));
 
   return (
-    <div className="grid gap-4 lg:grid-cols-5">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
       <Card className="grid grid-cols-3 divide-x divide-line lg:col-span-5">
         <Kpi label="Ingressos" value={formatCents(income)}>
           <Delta current={income} previous={prevIncome} label={previousLabel} />
@@ -76,7 +89,13 @@ export function SummaryPanel({
           <Delta current={totals.netExpenseCents} previous={previous?.netExpenseCents} label={previousLabel} inverse />
           {totals.refundsCents + totals.reimbursementsCents > 0 && (
             <div className="mt-0.5 text-ink-faint max-sm:hidden">
-              ja descomptats {formatCents(totals.refundsCents + totals.reimbursementsCents)} de devolucions
+              ja descomptats {formatCents(totals.refundsCents + totals.reimbursementsCents)}{' '}
+              {reportingView === 'consumption' ? 'de devolucions i del que esperes recuperar' : 'de devolucions'}
+            </div>
+          )}
+          {elsewhereCents > 0 && (
+            <div className="mt-0.5 text-ink-faint max-sm:hidden" title="Devolucions i Bizums d'aquest període enllaçats a compres d'altres períodes">
+              {formatCents(elsewhereCents)} recuperats compten al mes de la compra
             </div>
           )}
         </Kpi>
@@ -90,6 +109,27 @@ export function SummaryPanel({
           )}
         </Kpi>
       </Card>
+
+      {pendingTotal > 0 && (
+        <button
+          onClick={onOpenPending}
+          disabled={!onOpenPending}
+          className="flex min-w-0 items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 text-left text-sm shadow-card transition enabled:hover:bg-subtle lg:col-span-5"
+        >
+          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-accent-soft text-accent-ink">
+            <Icon name="link" className="size-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="font-medium">Pendent de cobrar: {formatCents(pendingTotal)}</span>
+            <span className="block truncate text-xs text-ink-muted">
+              {[pendingRecoveryCents > 0 && `${formatCents(pendingRecoveryCents)} de despeses compartides`, pendingDebtCents > 0 && `${formatCents(pendingDebtCents)} de deutes`]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          </span>
+          {onOpenPending && <Icon name="chevronRight" className="size-4 text-ink-faint" />}
+        </button>
+      )}
 
       {rows.length > 0 && (
         <Card className="px-5 py-4 lg:col-span-5">
