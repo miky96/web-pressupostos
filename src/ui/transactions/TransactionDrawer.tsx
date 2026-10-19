@@ -11,6 +11,7 @@ import { Alert, Badge, Switch } from '../kit/Feedback';
 import { formatLongDate, KIND_LABELS } from '../labels';
 import type { BudgetState } from '../useBudget';
 import { isRecovery } from '../../domain/recoveries';
+import { sharedLinksByTx } from '../../domain/shared';
 import { RecoverySection } from './RecoverySection';
 import { Amount } from './TransactionList';
 
@@ -132,8 +133,16 @@ export function TransactionDrawer({
   const noCategory = isNeutralKind(tx.kind);
   const preferred: Category['kind'] = INCOME_KINDS.includes(tx.kind) ? 'income' : 'expense';
   // Una entrada per enllaçar (Bizum, devolució) es resol enllaçant-la: la categoria ve de la despesa.
-  const linkFirst = isRecovery(tx) && !tx.recoversTxId;
-  const recovery = <RecoverySection key={tx.id} tx={tx} budget={budget} onOpenTx={onOpenTx} />;
+  const sharedLink = data ? sharedLinksByTx(data.shared, data.transactions).get(tx.id) : undefined;
+  const linkFirst = isRecovery(tx) && !tx.recoversTxId && !sharedLink;
+  // Un moviment d'una cosa compartida ja porta el repartiment allà: no hi ha recuperacions a part.
+  const recovery = sharedLink ? (
+    <Alert tone="info" title={`Compartit: ${sharedLink.item.name}`}>
+      {sharedLink.role === 'expense' ? 'És una despesa compartida' : 'És una liquidació'}: el repartiment i qui deu què es porten des de Compartit.
+    </Alert>
+  ) : (
+    <RecoverySection key={tx.id} tx={tx} budget={budget} onOpenTx={onOpenTx} />
+  );
   const categories = (data?.categories ?? []).filter((c) => showAllCats || c.kind === preferred || c.id === tx.categoryId);
 
   return (

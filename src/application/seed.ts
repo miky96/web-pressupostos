@@ -21,6 +21,7 @@ export function initialData(settings: BudgetSettings = DEFAULT_SETTINGS): Budget
     goals: [],
     limits: [],
     subscriptions: [],
+    shared: [],
     settings,
   };
 }

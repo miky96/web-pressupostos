@@ -11,8 +11,9 @@
  */
 import { secondsBetween } from './dates';
 import type { Cents } from './money';
+import { sharedConsumption } from './shared';
 import { editTransaction } from './transactions';
-import type { Debt, Transaction, TransactionKind } from './types';
+import type { Debt, SharedItem, Transaction, TransactionKind } from './types';
 
 export type ReportingView = 'consumption' | 'cash';
 
@@ -84,11 +85,14 @@ export const PENDING_SUFFIX = '#pendent';
  *  - una recuperació enllaçada pren la data i la categoria de la seva despesa;
  *  - cada despesa amb pendent de recuperar genera un reemborsament virtual (source 'derived')
  *    per aquest import, a la mateixa data i categoria.
+ *  - de les coses compartides només compta la teva part (vegeu `sharedConsumption`).
  * Així `summarize`, `netExpenseByCategory` i les gràfiques no han de saber res de recuperacions.
  * No s'ha de fer servir per als saldos ni per als llistats.
  */
-export function attributeForView(txs: Transaction[], view: ReportingView): Transaction[] {
-  if (view === 'cash') return txs;
+export function attributeForView(all: Transaction[], view: ReportingView, shared: SharedItem[] = []): Transaction[] {
+  if (view === 'cash') return all;
+  const adj = shared.length ? sharedConsumption(shared, all) : undefined;
+  const txs = adj ? [...all.filter((t) => !adj.drop.has(t.id)), ...adj.derived] : all;
   const byId = new Map(txs.map((t) => [t.id, t]));
   const index = recoveriesByExpense(txs);
   const out: Transaction[] = [];

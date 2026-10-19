@@ -3,6 +3,7 @@ import { reclassify } from '../application/importService';
 import type { Rule } from '../domain/classification';
 import { todayIso } from '../domain/dates';
 import { summarizeDebts } from '../domain/debts';
+import { cleanupSharedLinks, summarizeShared } from '../domain/shared';
 import { latestMonth, periodRange, shiftPeriod, type Period } from '../domain/periods';
 import { attributeForView, cleanupLinks, pendingRecoveries, recoveriesAttributedElsewhere, recoveriesByExpense, recoveryStatus } from '../domain/recoveries';
 import { filterTransactions, netExpenseByCategory, summarize, UNCATEGORIZED, type TransactionFilter } from '../domain/summary';
@@ -35,7 +36,7 @@ const isIncoming = (t: Transaction) => t.amountCents > 0 && (t.kind === 'refund'
 
 const byDateDesc = (a: Transaction, b: Transaction) => b.date.localeCompare(a.date);
 
-export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; onNavigate?: (tab: 'importar' | 'comptes' | 'deutes') => void }) {
+export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; onNavigate?: (tab: 'importar' | 'comptes' | 'deutes' | 'compartit') => void }) {
   const { data, run, lookups } = budget;
   const [chosenPeriod, setPeriod] = useState<Period | null>(null);
   const [filter, setFilter] = useState<ViewFilter>({});
@@ -60,7 +61,7 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
   const view = useMemo(() => {
     const txs = data?.transactions ?? [];
     // Els llistats mostren els moviments reals; els totals, la vista triada (consum o caixa).
-    const effective = attributeForView(txs, reportingView);
+    const effective = attributeForView(txs, reportingView, data?.shared);
     const inPeriod = (p: Period, f: ViewFilter, from = txs) => filterTransactions(from, { ...f, ...periodRange(p) });
     const rows = inPeriod(period, filter).sort(byDateDesc);
     // "Per revisar" és un filtre de la llista: els totals sempre mostren tot el període.
@@ -82,6 +83,7 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
       elsewhereCents: reportingView === 'consumption' ? recoveriesAttributedElsewhere(txs, periodRange(period)) : 0,
       // Les despeses repartides entre persones ja compten com a deutes.
       pending: pendingRecoveries(txs, data?.debts),
+      sharedOwedCents: (data?.shared ?? []).reduce((s, i) => s + summarizeShared(i, txs).withPeople.reduce((a, p) => a + Math.max(p.cents, 0), 0), 0),
       recoveryInfo,
     };
   }, [data, period, filter, reportingView]);
@@ -108,7 +110,7 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
    * Executa un canvi sobre el moviment obert. En mode "per revisar" el moviment desapareix de la
    * llista en revisar-lo, així que passem directament al següent.
    */
-  async function onOpenTx(action: () => Promise<void>) {
+  async function onOpenTx(action: () => Promise<unknown>) {
     const nextId = visible[openIndex + 1]?.id ?? visible[openIndex - 1]?.id ?? null;
     await action();
     if (filter.onlyNeedsReview) setOpenId(nextId);
@@ -146,7 +148,9 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
     const ids = group.map((t) => t.id);
     // Les devolucions i els deutes que hi apuntaven es mantenen, però sense l'enllaç.
     const links = cleanupLinks(new Set(ids), data!.transactions, data!.debts);
+    const shared = cleanupSharedLinks(new Set(ids), data!.shared);
     await run(async (repo) => {
+      if (shared.length) await repo.upsertShared(shared);
       await repo.deleteTransactions(ids);
       if (links.txs.length) await repo.upsertTransactions(links.txs);
       if (links.debts.length) await repo.upsertDebts(links.debts);
@@ -263,7 +267,8 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
         elsewhereCents={view.elsewhereCents}
         pendingRecoveryCents={view.pending.reduce((s, p) => s + p.pendingCents, 0)}
         pendingDebtCents={summarizeDebts(data.debts).pendingCents}
-        onOpenPending={onNavigate ? () => onNavigate('deutes') : undefined}
+        pendingSharedCents={view.sharedOwedCents}
+        onOpenPending={onNavigate ? () => onNavigate(view.sharedOwedCents > 0 ? 'compartit' : 'deutes') : undefined}
       />
 
       {view.reviewCount > 0 && !filter.onlyNeedsReview && (

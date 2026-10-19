@@ -29,7 +29,7 @@ export function SpendingLimits({ budget }: { budget: BudgetState }) {
   const [view, setView] = useReportingView();
   const [open, setOpen] = useState<Open>(null);
 
-  const effective = useMemo(() => attributeForView(data.transactions, view), [data.transactions, view]);
+  const effective = useMemo(() => attributeForView(data.transactions, view, data.shared), [data.transactions, view, data.shared]);
   const ml = useMemo(() => monthLimits(data.limits, effective, month, now), [data.limits, effective, month, now]);
   const categories = useMemo(() => new Map(data.categories.map((c) => [c.id, c])), [data.categories]);
   const isCurrent = month === currentMonth;

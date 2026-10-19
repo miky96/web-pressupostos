@@ -1,7 +1,7 @@
 import { classify, type MirrorTarget, type Rule } from '../domain/classification';
 import { reconcileManual, type ManualMatch } from '../domain/reconcile';
 import { reconcileImport } from '../domain/subscriptions';
-import type { AccountType, Debt, Subscription, Transaction, TransactionKind } from '../domain/types';
+import type { AccountType, Debt, SharedItem, Subscription, Transaction, TransactionKind } from '../domain/types';
 import type { ImportIssue, ImportResult } from '../importers/types';
 import { pairInternalTransfers, pairReverts } from './pairing';
 
@@ -106,6 +106,7 @@ export interface ImportContext {
   subscriptions?: Subscription[];
   /** Per mantenir els enllaços dels moviments manuals que es fusionen amb els importats. */
   debts?: Debt[];
+  shared?: SharedItem[];
 }
 
 export interface ImportPlan {
@@ -128,6 +129,7 @@ export interface ImportPlan {
   /** Moviments existents i deutes que apuntaven als manuals fusionats (cal desar-los). */
   updatedTransactions: Transaction[];
   updatedDebts: Debt[];
+  updatedShared: SharedItem[];
 }
 
 export function planImport(result: ImportResult, ctx: ImportContext): ImportPlan {
@@ -142,7 +144,7 @@ export function planImport(result: ImportResult, ctx: ImportContext): ImportPlan
     ctx.existingTransactions ?? [],
     ctx.subscriptions ?? [],
   );
-  const manual = reconcileManual(rec.transactions, ctx.existingTransactions ?? [], ctx.debts ?? []);
+  const manual = reconcileManual(rec.transactions, ctx.existingTransactions ?? [], ctx.debts ?? [], ctx.shared ?? []);
   const fresh = manual.transactions;
   const byKind = { expense: 0, income: 0, transfer: 0, interest: 0, refund: 0, reimbursement: 0, loan: 0, adjustment: 0 };
   for (const t of fresh) byKind[t.kind]++;
@@ -159,6 +161,7 @@ export function planImport(result: ImportResult, ctx: ImportContext): ImportPlan
     manualMatches: manual.matches,
     updatedTransactions: manual.updatedTransactions,
     updatedDebts: manual.updatedDebts,
+    updatedShared: manual.updatedShared,
   };
 }
 
