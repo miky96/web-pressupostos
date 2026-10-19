@@ -100,7 +100,8 @@ export function TransactionList({
                             Per revisar
                           </Badge>
                         )}
-                        {t.source === 'manual' && <Badge className="max-sm:hidden">manual</Badge>}
+                        {t.source === 'manual' && !t.subscriptionId && <Badge className="max-sm:hidden">manual</Badge>}
+                        {t.subscriptionId && <Icon name="repeat" className="size-3.5 shrink-0 text-ink-faint" aria-label="Subscripció" />}
                         {t.recoversTxId && <Icon name="link" className="size-3.5 shrink-0 text-ink-faint" aria-label="Enllaçat a una despesa" />}
                         {t.hidden && (
                           <Icon name="eyeOff" className="size-3.5 text-ink-faint" aria-label="Amagat" />

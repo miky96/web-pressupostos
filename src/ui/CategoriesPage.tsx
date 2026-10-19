@@ -128,6 +128,8 @@ function CategoryDrawer({ budget, category, defaultKind, onClose }: { budget: Bu
         await repo.upsertRules(plan.rulesToUpsert);
         await repo.deleteRules(plan.rulesToDelete);
         await repo.upsertCategories(plan.categories);
+        if (plan.limitsToDelete.length) await repo.deleteLimits(plan.limitsToDelete);
+        if (plan.subscriptions.length) await repo.upsertSubscriptions(plan.subscriptions);
         await repo.deleteCategories([category.id]);
       });
       onClose();

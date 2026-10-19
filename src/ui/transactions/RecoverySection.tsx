@@ -1,5 +1,7 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { debtFromTransaction, debtLinksByTx, knownPeople, type DebtLink, linkRepaymentTx, pendingCents, releaseDebtTxs } from '../../domain/debts';
+import { todayIso } from '../../domain/dates';
+import { debtFromTransaction, debtLinksByTx, isSettled, knownPeople, type DebtLink, linkRepaymentTx, pendingCents, releaseDebtTxs } from '../../domain/debts';
+import { splitExpense } from '../../domain/sharedExpenses';
 import { formatCents, parseUserAmount } from '../../domain/money';
 import {
   descriptionTokens,
@@ -17,10 +19,11 @@ import {
 import { editTransaction } from '../../domain/transactions';
 import type { Debt, Transaction } from '../../domain/types';
 import { Button } from '../kit/Button';
-import { Alert, Switch } from '../kit/Feedback';
+import { Alert, Badge, Switch } from '../kit/Feedback';
 import { Icon } from '../kit/Icon';
 import { formatDate } from '../labels';
 import { newId, type BudgetState } from '../useBudget';
+import { buildShares, initialSplit, SharedSplit, type SplitState } from './SharedSplit';
 
 const centsToInput = (c: number) => (c ? (c / 100).toFixed(2).replace('.', ',') : '');
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -90,13 +93,76 @@ export function RecoverySection({ tx, budget, onOpenTx }: { tx: Transaction; bud
 
 type Apply = (build: () => { txs?: Transaction[]; debts?: Debt[] }) => Promise<void>;
 
+/** Desenllaça un retorn de la despesa; si era la part d'algú, també el treu del seu deute. */
+function unlinkChanges(r: Transaction, debts: Debt[]): { txs: Transaction[]; debts?: Debt[] } {
+  const share = debtLinksByTx(debts).get(r.id);
+  if (share?.role !== 'repayment' || !share.debt.expenseTxId) return { txs: [unlinkRecovery(r)] };
+  return { txs: [unlinkRecovery(r)], debts: [{ ...share.debt, repayments: share.debt.repayments.filter((x) => x.id !== share.repaymentId) }] };
+}
+
 function ExpenseRecovery({ tx, txs, debts, apply, onOpenTx }: { tx: Transaction; txs: Transaction[]; debts: Debt[]; apply: Apply; onOpenTx: (id: string) => void }) {
   const status = recoveryStatus(tx, recoveriesByExpense(txs).get(tx.id));
   const [loanForm, setLoanForm] = useState(false);
+  const [splitting, setSplitting] = useState(false);
+  const [split, setSplit] = useState<SplitState>(() => initialSplit(todayIso().slice(0, 10)));
+  const shares = debts.filter((d) => d.expenseTxId === tx.id);
+  const sharedCents = shares.reduce((s, d) => s + d.amountCents, 0);
   const saveExpected = (cents: number) => cents !== (tx.expectedBackCents ?? 0) && apply(() => ({ txs: [setExpectedBack(tx, cents)] }));
+
+  const saveSplit = () =>
+    apply(() => {
+      // Sense parts prèvies, es reparteix el total; si ja n'hi ha, cal escriure la part de cada persona nova.
+      const r = splitExpense(tx, buildShares(split, shares.length ? 0 : status.grossCents, tx.accountId), { existingDebts: debts, newId });
+      setSplitting(false);
+      setSplit(initialSplit(todayIso().slice(0, 10)));
+      return { txs: [r.expense, ...r.reimbursements], debts: r.debts };
+    });
 
   return (
     <div className="space-y-3">
+      {shares.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-xs font-medium text-ink-muted">Repartida amb {shares.length === 1 ? '1 persona' : `${shares.length} persones`}</div>
+          <ul className="divide-y divide-line rounded-lg border border-line">
+            {shares.map((d) => (
+              <li key={d.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                <span className="min-w-0 flex-1 truncate font-medium">{d.person}</span>
+                {isSettled(d) ? <Badge tone="pos">pagat</Badge> : <Badge tone="warn">deu {formatCents(pendingCents(d))}</Badge>}
+                <span className="amount w-20 text-right text-ink-muted">{formatCents(d.amountCents)}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="hint mt-1.5">Quan rebis el Bizum d'algú, obre'l i enllaça'l al seu deute.</p>
+        </div>
+      )}
+
+      {splitting ? (
+        <div className="space-y-3 rounded-lg bg-subtle/60 p-3">
+          <SharedSplit
+            totalCents={shares.length ? null : status.grossCents}
+            value={split}
+            onChange={setSplit}
+            people={knownPeople(debts)}
+            defaultDate={todayIso().slice(0, 10)}
+          />
+          <div className="flex gap-2">
+            <Button size="sm" variant="primary" onClick={saveSplit}>
+              Desar repartiment
+            </Button>
+            <Button size="sm" onClick={() => setSplitting(false)}>
+              Cancel·lar
+            </Button>
+          </div>
+        </div>
+      ) : (
+        sharedCents < status.grossCents && (
+          <Button size="sm" icon="users" onClick={() => setSplitting(true)}>
+            {shares.length ? 'Afegir persones' : 'Repartir entre persones'}
+          </Button>
+        )
+      )}
+
+      {shares.length === 0 && (
       <label className="label">
         Espero recuperar (€)
         <div className="flex gap-2">
@@ -114,6 +180,7 @@ function ExpenseRecovery({ tx, txs, debts, apply, onOpenTx }: { tx: Transaction;
         </div>
         <span className="hint">La part que pagues per altres o que et tornaran. A la vista de consum, ja no compta com a despesa teva.</span>
       </label>
+      )}
 
       {(status.expectedCents > 0 || status.recoveredCents > 0) && (
         <dl className="grid grid-cols-3 gap-2 rounded-lg bg-subtle px-3 py-2 text-xs">
@@ -139,7 +206,7 @@ function ExpenseRecovery({ tx, txs, debts, apply, onOpenTx }: { tx: Transaction;
               key={r.id}
               tx={r}
               onOpen={() => onOpenTx(r.id)}
-              action={<Button variant="ghost" size="sm" icon="x" aria-label="Desenllaçar" title="Desenllaçar" onClick={() => apply(() => ({ txs: [unlinkRecovery(r)] }))} />}
+              action={<Button variant="ghost" size="sm" icon="x" aria-label="Desenllaçar" title="Desenllaçar" onClick={() => apply(() => unlinkChanges(r, debts))} />}
             />
           ))}
         </ul>
@@ -155,7 +222,7 @@ function ExpenseRecovery({ tx, txs, debts, apply, onOpenTx }: { tx: Transaction;
         </label>
       )}
 
-      {status.recoveries.length === 0 && !status.expectedCents && (
+      {status.recoveries.length === 0 && !status.expectedCents && !splitting && (
         loanForm ? (
           <LoanForm tx={tx} debts={debts} apply={apply} onCancel={() => setLoanForm(false)} />
         ) : (
@@ -225,20 +292,28 @@ function IncomingLink({ tx, txs, debts, apply, onOpenTx }: { tx: Transaction; tx
   const linkTo = (expense: Transaction) => apply(() => ({ txs: [linkRecovery(tx, expense, txs)] }));
   const linkToDebt = (debt: Debt) =>
     apply(() => {
-      const r = linkRepaymentTx(debt, tx, newId('rep'));
+      const r = linkRepaymentTx(debt, tx, newId('rep'), txs.find((t) => t.id === debt.expenseTxId));
       return { txs: [r.tx], debts: [r.debt] };
     });
 
   if (target) {
+    // Si és el retorn de la part d'algú (despesa compartida), desenllaçar també el treu del seu deute.
+    const share = debtLinksByTx(debts).get(tx.id);
+    const unlink = () => apply(() => unlinkChanges(tx, debts));
     return (
       <div className="space-y-2">
-        <p className="text-xs text-ink-muted">Recupera aquesta despesa. A la vista de consum compta el dia de la compra.</p>
+        <p className="text-xs text-ink-muted">
+          {share?.role === 'repayment' ? (
+            <>
+              Part de <span className="font-medium text-ink">{share.debt.person}</span> d'aquesta despesa.{' '}
+            </>
+          ) : (
+            'Recupera aquesta despesa. '
+          )}
+          A la vista de consum compta el dia de la compra.
+        </p>
         <ul className="rounded-lg border border-line">
-          <TxLine
-            tx={target}
-            onOpen={() => onOpenTx(target.id)}
-            action={<Button variant="ghost" size="sm" icon="x" aria-label="Desenllaçar" title="Desenllaçar" onClick={() => apply(() => ({ txs: [unlinkRecovery(tx)] }))} />}
-          />
+          <TxLine tx={target} onOpen={() => onOpenTx(target.id)} action={<Button variant="ghost" size="sm" icon="x" aria-label="Desenllaçar" title="Desenllaçar" onClick={unlink} />} />
         </ul>
       </div>
     );

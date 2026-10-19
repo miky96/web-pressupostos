@@ -30,7 +30,7 @@ export function readStoredBudget(storage: KeyValueStorage, budgetId: string): Bu
   }
 }
 
-type Collection = 'accounts' | 'transactions' | 'categories' | 'rules' | 'valuations' | 'debts';
+type Collection = 'accounts' | 'transactions' | 'categories' | 'rules' | 'valuations' | 'debts' | 'goals' | 'limits' | 'subscriptions';
 
 /**
  * Adaptador provisional: guarda tot el pressupost com un JSON a localStorage.
@@ -96,6 +96,12 @@ export class KeyValueBudgetRepository implements BudgetRepository {
   deleteValuations = (ids: string[]) => this.remove('valuations', ids);
   upsertDebts = (items: BudgetData['debts']) => this.upsert('debts', items);
   deleteDebts = (ids: string[]) => this.remove('debts', ids);
+  upsertGoals = (items: BudgetData['goals']) => this.upsert('goals', items);
+  deleteGoals = (ids: string[]) => this.remove('goals', ids);
+  upsertLimits = (items: BudgetData['limits']) => this.upsert('limits', items);
+  deleteLimits = (ids: string[]) => this.remove('limits', ids);
+  upsertSubscriptions = (items: BudgetData['subscriptions']) => this.upsert('subscriptions', items);
+  deleteSubscriptions = (ids: string[]) => this.remove('subscriptions', ids);
 
   async saveSettings(settings: BudgetSettings): Promise<void> {
     const data = await this.loadRef();

@@ -78,6 +78,47 @@ export function createManualTransfer(
   ];
 }
 
+export interface ManualDetails {
+  description?: string;
+  /** En positiu: el signe es manté (o el decideix el tipus). */
+  amountCents?: Cents;
+  date?: string;
+  accountId?: string;
+}
+
+/**
+ * Corregeix un moviment apuntat a mà (import, data, descripció, compte). Els importats no es
+ * poden tocar: ho diu l'extracte. En un traspàs, l'import i la data s'apliquen a les dues potes.
+ * Retorna tots els moviments que canvien.
+ */
+export function editManualDetails(tx: Transaction, details: ManualDetails, all: Transaction[] = []): Transaction[] {
+  if (tx.source !== 'manual') throw new Error("Només es poden corregir els moviments afegits a mà");
+  const patch: Partial<Transaction> = {};
+  if (details.description !== undefined) {
+    if (!details.description.trim()) throw new Error('Cal una descripció');
+    patch.description = details.description.trim();
+  }
+  if (details.date !== undefined) patch.date = normalizeDate(details.date.length === 10 ? `${details.date}${tx.date.slice(10)}` : details.date);
+  if (details.accountId !== undefined) patch.accountId = details.accountId;
+  if (details.amountCents !== undefined) {
+    const abs = Math.abs(details.amountCents);
+    if (abs === 0 && tx.kind !== 'adjustment') throw new Error("L'import no pot ser 0");
+    const sign = tx.amountCents < 0 ? -1 : 1;
+    patch.amountCents = isNeutralKind(tx.kind) ? sign * abs : signedAmountFor(tx.kind, abs);
+  }
+  // La pota d'un altre compte que ve d'un extracte no es toca.
+  const legs = tx.transferGroupId ? all.filter((t) => t.transferGroupId === tx.transferGroupId && t.id !== tx.id && t.source !== 'import') : [];
+  const out = [editTransaction(tx, patch)];
+  for (const leg of legs) {
+    const p: Partial<Transaction> = {};
+    if (patch.date) p.date = patch.date;
+    if (patch.amountCents !== undefined) p.amountCents = -patch.amountCents;
+    if (patch.description) p.description = patch.description;
+    if (Object.keys(p).length) out.push(editTransaction(leg, p));
+  }
+  return out;
+}
+
 /** Aplica una edició de l'usuari (tipus, categoria, notes...) i la protegeix de reaplicar regles. */
 export function editTransaction(tx: Transaction, patch: Partial<Omit<Transaction, 'id' | 'source'>>): Transaction {
   const next: Transaction = { ...tx, ...patch, userEdited: true, needsReview: false };
@@ -91,6 +132,45 @@ export function editTransaction(tx: Transaction, patch: Partial<Omit<Transaction
     delete next.recoveryClosed;
   }
   return next;
+}
+
+const normDesc = (s: string) =>
+  s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/**
+ * Per a l'alta manual: si ja has apuntat (o importat) un moviment amb la mateixa descripció,
+ * en proposa el tipus, la categoria i el compte (el més recent mana).
+ */
+export function suggestFromHistory(
+  description: string,
+  txs: Transaction[],
+): { kind: TransactionKind; categoryId?: string; accountId: string } | undefined {
+  const key = normDesc(description);
+  if (key.length < 3) return undefined;
+  let best: Transaction | undefined;
+  for (const t of txs) {
+    if (t.hidden || t.source === 'derived' || isNeutralKind(t.kind) || normDesc(t.description) !== key) continue;
+    if (!best || t.date > best.date) best = t;
+  }
+  return best && { kind: best.kind, categoryId: best.categoryId, accountId: best.accountId };
+}
+
+/** Descripcions usades abans (per autocompletar), de les més freqüents a les menys. */
+export function knownDescriptions(txs: Transaction[], limit = 200): string[] {
+  const counts = new Map<string, { text: string; n: number }>();
+  for (const t of txs) {
+    if (t.hidden || t.source === 'derived' || t.source === 'import') continue;
+    const k = normDesc(t.description);
+    const c = counts.get(k);
+    if (c) c.n++;
+    else counts.set(k, { text: t.description, n: 1 });
+  }
+  return [...counts.values()].sort((a, b) => b.n - a.n).slice(0, limit).map((c) => c.text);
 }
 
 /** Canvis en bloc. Un camp `undefined` vol dir "no el toquis". */

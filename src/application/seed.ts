@@ -18,6 +18,9 @@ export function initialData(settings: BudgetSettings = DEFAULT_SETTINGS): Budget
     rules: builtInRules(settings),
     valuations: [],
     debts: [],
+    goals: [],
+    limits: [],
+    subscriptions: [],
     settings,
   };
 }

@@ -3,12 +3,17 @@ import type { BudgetRepository } from '../application/ports';
 import { AccountsPage } from './AccountsPage';
 import { CategoriesPage } from './CategoriesPage';
 import { DebtsPage } from './DebtsPage';
+import { GoalsPage } from './goals/GoalsPage';
 import { ImportPage } from './ImportPage';
 import { cx } from './kit/cx';
 import { Alert } from './kit/Feedback';
+import { formatCents } from '../domain/money';
+import { formatDate } from './labels';
 import { Icon, type IconName } from './kit/Icon';
 import { RulesPage } from './RulesPage';
 import { SettingsPage } from './SettingsPage';
+import { SubscriptionsPage } from './subscriptions/SubscriptionsPage';
+import { useSubscriptionAutoRun } from './subscriptions/useSubscriptionAutoRun';
 import { TransactionsPage } from './TransactionsPage';
 import { useBudget } from './useBudget';
 
@@ -19,6 +24,8 @@ const TABS: Record<string, { label: string; icon: IconName }> = {
   moviments: { label: 'Moviments', icon: 'list' },
   grafiques: { label: 'Gràfiques', icon: 'trend' },
   comptes: { label: 'Comptes', icon: 'wallet' },
+  objectius: { label: 'Objectius', icon: 'target' },
+  subscripcions: { label: 'Subscripcions', icon: 'repeat' },
   deutes: { label: 'Deutes', icon: 'users' },
   importar: { label: 'Importar', icon: 'upload' },
   categories: { label: 'Categories', icon: 'tag' },
@@ -26,8 +33,8 @@ const TABS: Record<string, { label: string; icon: IconName }> = {
   configuracio: { label: 'Configuració', icon: 'settings' },
 };
 type Tab = keyof typeof TABS;
-/** A mòbil només caben 4 pestanyes + "Més". */
-const MOBILE_PRIMARY: Tab[] = ['moviments', 'grafiques', 'comptes', 'importar'];
+/** A mòbil només caben 4 pestanyes + "Més". Importar és a "Més": l'alta manual és igual de vàlida. */
+const MOBILE_PRIMARY: Tab[] = ['moviments', 'grafiques', 'comptes', 'deutes'];
 
 /** Present quan l'app funciona amb Firebase (hi ha un usuari autenticat). */
 export interface AccountInfo {
@@ -48,6 +55,7 @@ export function Logo({ className }: { className?: string }) {
 
 export function App({ repo, account }: { repo: BudgetRepository; account?: AccountInfo }) {
   const budget = useBudget(repo);
+  const autoRun = useSubscriptionAutoRun(budget);
   const [tab, setTab] = useState<Tab>('moviments');
   const [moreOpen, setMoreOpen] = useState(false);
   const go = (t: Tab) => {
@@ -114,6 +122,25 @@ export function App({ repo, account }: { repo: BudgetRepository; account?: Accou
             {budget.error}
           </Alert>
         )}
+        {autoRun.created.length > 0 && (
+          <Alert
+            tone="info"
+            className="mb-6"
+            title={autoRun.created.length === 1 ? "S'ha apuntat un cobrament de subscripció" : `S'han apuntat ${autoRun.created.length} cobraments de subscripcions`}
+            onClose={autoRun.dismiss}
+            action={
+              <button className="text-sm font-medium underline-offset-2 hover:underline" onClick={() => go('subscripcions')}>
+                Veure
+              </button>
+            }
+          >
+            {autoRun.created
+              .slice(0, 4)
+              .map((c) => `${c.subscription.name} (${formatCents(c.subscription.amountCents)}, ${formatDate(c.date)})`)
+              .join(' · ')}
+            {autoRun.created.length > 4 && ' …'}
+          </Alert>
+        )}
         {!budget.data && <div className="py-20 text-center text-sm text-ink-muted">Carregant…</div>}
         {tab === 'moviments' && <TransactionsPage budget={budget} onNavigate={go} />}
         {tab === 'grafiques' && (
@@ -122,6 +149,8 @@ export function App({ repo, account }: { repo: BudgetRepository; account?: Accou
           </Suspense>
         )}
         {tab === 'comptes' && <AccountsPage budget={budget} />}
+        {tab === 'objectius' && <GoalsPage budget={budget} />}
+        {tab === 'subscripcions' && <SubscriptionsPage budget={budget} />}
         {tab === 'deutes' && <DebtsPage budget={budget} />}
         {tab === 'importar' && <ImportPage budget={budget} />}
         {tab === 'categories' && <CategoriesPage budget={budget} />}

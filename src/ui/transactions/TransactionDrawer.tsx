@@ -1,5 +1,7 @@
+import { isPlaceholder } from '../../domain/subscriptions';
 import { useState, type ReactNode } from 'react';
-import { formatCents } from '../../domain/money';
+import { formatCents, parseUserAmount } from '../../domain/money';
+import { editManualDetails, type ManualDetails } from '../../domain/transactions';
 import { isNeutralKind, TRANSACTION_KINDS, type Category, type Transaction, type TransactionKind } from '../../domain/types';
 import { CategoryDot } from '../CategoryAvatar';
 import { Button } from '../kit/Button';
@@ -20,6 +22,81 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
       <dt className="text-ink-muted">{label}</dt>
       <dd className="min-w-0 text-right">{children}</dd>
     </div>
+  );
+}
+
+/** Els moviments afegits a mà es poden corregir del tot (els importats, no: mana l'extracte). */
+function ManualDetailsEditor({ tx, budget }: { tx: Transaction; budget: BudgetState }) {
+  const { data, run } = budget;
+  const [error, setError] = useState<string | null>(null);
+  const accounts = (data?.accounts ?? []).filter((a) => !a.archived || a.id === tx.accountId);
+  const isLeg = !!tx.transferGroupId;
+
+  async function save(details: ManualDetails) {
+    try {
+      setError(null);
+      const changed = editManualDetails(tx, details, data?.transactions ?? []);
+      await run((repo) => repo.upsertTransactions(changed));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const abs = (Math.abs(tx.amountCents) / 100).toFixed(2).replace('.', ',');
+  return (
+    <section className="space-y-3 rounded-xl border border-line p-4">
+      <h3 className="text-sm font-semibold">Dades del moviment</h3>
+      {error && (
+        <Alert tone="neg" onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+      <label className="label">
+        Descripció
+        <input
+          key={`d:${tx.description}`}
+          className="input"
+          defaultValue={tx.description}
+          onBlur={(e) => e.target.value.trim() !== tx.description && save({ description: e.target.value })}
+        />
+      </label>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="label">
+          Import (€)
+          <input
+            key={`a:${tx.amountCents}`}
+            className="input tabular-nums"
+            inputMode="decimal"
+            defaultValue={abs}
+            onBlur={(e) => {
+              if (e.target.value === abs) return;
+              try {
+                void save({ amountCents: parseUserAmount(e.target.value) });
+              } catch (err) {
+                setError(err instanceof Error ? err.message : String(err));
+              }
+            }}
+          />
+        </label>
+        <label className="label">
+          Data
+          <input key={`t:${tx.date}`} className="input" type="date" defaultValue={tx.date.slice(0, 10)} onChange={(e) => e.target.value && save({ date: e.target.value })} />
+        </label>
+      </div>
+      {!isLeg && (
+        <label className="label">
+          Compte
+          <select className="input" value={tx.accountId} onChange={(e) => save({ accountId: e.target.value })}>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {isLeg && <p className="hint">És un traspàs: l'import i la data també es corregeixen a l'altra pota.</p>}
+    </section>
   );
 }
 
@@ -105,6 +182,8 @@ export function TransactionDrawer({
       )}
 
       <div className="space-y-6">
+        {tx.source === 'manual' && <ManualDetailsEditor key={tx.id} tx={tx} budget={budget} />}
+
         <label className="label">
           Tipus
           <select className="input" value={tx.kind} onChange={(e) => onSave({ kind: e.target.value as TransactionKind })}>
@@ -183,6 +262,12 @@ export function TransactionDrawer({
           {tx.feeCents > 0 && <Row label="Comissió">{formatCents(tx.feeCents, tx.currency)}</Row>}
           {tx.balanceAfterCents !== undefined && <Row label="Saldo després">{formatCents(tx.balanceAfterCents, tx.currency)}</Row>}
           {tx.transferGroupId && <Row label="Enllaçat">Té una parella (traspàs o anul·lació)</Row>}
+          {tx.subscriptionId && (
+            <Row label="Subscripció">
+              {data?.subscriptions.find((s) => s.id === tx.subscriptionId)?.name ?? 'Eliminada'}
+              {isPlaceholder(tx) && account?.importKey && <span className="hint block">Provisional: se substituirà pel moviment real en importar.</span>}
+            </Row>
+          )}
           <Row label="Origen">{tx.source === 'import' ? 'Importat' : tx.source === 'manual' ? 'Afegit a mà' : 'Derivat'}</Row>
         </dl>
       </div>

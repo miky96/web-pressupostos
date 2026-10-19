@@ -48,6 +48,63 @@ export function accountBalance(
   return { cents, estimated: flows.length > 0 || !last, lastValuation: last };
 }
 
+/**
+ * Moviment d'ajust perquè el saldo d'un compte (mode 'transactions') sigui `targetCents` al final
+ * del dia `day` (YYYY-MM-DD) o en un moment concret (ISO amb hora). No és ni ingrés ni despesa.
+ * null si ja quadra.
+ */
+export function balanceAdjustment(
+  account: Account,
+  transactions: Transaction[],
+  targetCents: Cents,
+  day: string,
+  id: string,
+  note?: string,
+): Transaction | null {
+  if (account.balanceMode !== 'transactions') throw new Error('Aquest compte es valora a mà: afegeix una valoració');
+  const asOf = day.length > 10 ? day : `${day}T23:59:59`;
+  const current = accountBalance(account, transactions, [], asOf).cents;
+  const diff = targetCents - current;
+  if (diff === 0) return null;
+  return {
+    id,
+    accountId: account.id,
+    date: asOf,
+    amountCents: diff,
+    feeCents: 0,
+    currency: account.currency,
+    description: 'Ajust de saldo',
+    kind: 'adjustment',
+    notes: note?.trim() || undefined,
+    source: 'manual',
+    userEdited: true,
+  };
+}
+
+export interface BankBalanceCheck {
+  date: string;
+  /** Saldo segons l'extracte (columna de saldo de l'últim moviment importat). */
+  bankCents: Cents;
+  /** Saldo que calcula l'app en aquell moment. */
+  appCents: Cents;
+}
+
+/**
+ * Compara el saldo de l'últim moviment importat amb el que calcula l'app en aquell moment. Si no
+ * quadren, hi ha un moviment duplicat, perdut o mal apuntat. undefined si no es pot comprovar
+ * (sense saldos al fitxer o diversos moviments al mateix segon).
+ */
+export function bankBalanceCheck(account: Account, transactions: Transaction[]): BankBalanceCheck | undefined {
+  if (account.balanceMode !== 'transactions') return undefined;
+  const own = transactions.filter((t) => t.accountId === account.id);
+  const last = own
+    .filter((t) => t.source === 'import' && t.balanceAfterCents !== undefined)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .at(-1);
+  if (!last || own.some((t) => t !== last && t.date === last.date)) return undefined;
+  return { date: last.date, bankCents: last.balanceAfterCents!, appCents: accountBalance(account, own, [], last.date).cents };
+}
+
 /** Evolució del saldo (una entrada per moviment) per a gràfiques. */
 export function balanceSeries(account: Account, transactions: Transaction[]): { date: string; balanceCents: Cents }[] {
   let running = account.opening?.balanceCents ?? 0;
