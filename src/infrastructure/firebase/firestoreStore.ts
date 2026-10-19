@@ -9,7 +9,7 @@ import { chunk, COLLECTIONS, type BudgetStore, type WriteOp } from '../cachedRep
  * Model a Firestore:
  *   users/{uid}                         { email, defaultBudgetId }
  *   budgets/{budgetId}                  { name, members: { uid: 'owner' | 'editor' | 'viewer' }, settings, seeded }
- *   budgets/{budgetId}/{col}/{id}       accounts | transactions | categories | rules | valuations | debts
+ *   budgets/{budgetId}/{col}/{id}       accounts | transactions | categories | rules | valuations | debts | goals | limits | subscriptions
  * Cada entitat és un document amb el mateix id que a l'app.
  */
 export class FirestoreBudgetStore implements BudgetStore {

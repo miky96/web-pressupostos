@@ -108,4 +108,18 @@ describe('deutes i categories al repositori', () => {
     await repo.replaceAll(old as ReturnType<typeof initialData>);
     expect(store.state.debts).toEqual([]);
   });
+
+  it('desa objectius i límits, i una còpia antiga sense aquestes col·leccions no falla', async () => {
+    const { store, repo } = setup();
+    await repo.upsertGoals([{ id: 'g1', name: 'Cotxe', targetCents: 100, accountIds: [], contributions: [], createdAt: '2026-10-01T00:00:00' }]);
+    await repo.upsertLimits([{ id: 'limit_oci', categoryId: 'oci', monthlyCents: 100 }]);
+    expect(store.state.goals).toHaveLength(1);
+    expect(store.state.limits).toHaveLength(1);
+    const old = initialData() as Partial<ReturnType<typeof initialData>>;
+    delete old.goals;
+    delete old.limits;
+    await repo.replaceAll(old as ReturnType<typeof initialData>);
+    expect(store.state.goals).toEqual([]);
+    expect((await repo.load()).limits).toEqual([]);
+  });
 });

@@ -104,6 +104,8 @@ export interface Transaction {
   expectedBackCents?: Cents;
   /** Despesa amb recuperació esperada que ja no esperes cobrar més: el que falti és despesa teva. */
   recoveryClosed?: boolean;
+  /** Cobrament d'una subscripció (creat per l'app o reconegut entre els importats). */
+  subscriptionId?: string;
 }
 
 export interface Category {
@@ -136,6 +138,70 @@ export interface Debt {
   notes?: string;
   /** Moviment amb què vas deixar els diners (p.ex. el Bizum enviat). */
   txId?: string;
+  /**
+   * La part d'aquesta persona d'una despesa compartida que vas pagar tu (un sopar...). Els seus
+   * retorns són reemborsaments enllaçats a aquella despesa, no préstecs.
+   */
+  expenseTxId?: string;
+}
+
+/** Aportació manual a un objectiu d'estalvi (negativa si en treus diners). */
+export interface GoalContribution {
+  id: string;
+  date: string;
+  amountCents: Cents;
+  note?: string;
+}
+
+/**
+ * Objectiu d'estalvi. L'estalviat = saldo actual dels comptes vinculats + aportacions manuals.
+ * Es pot fer servir només una de les dues fonts o totes dues (p.ex. compte remunerat + efectiu).
+ */
+export interface SavingsGoal {
+  id: string;
+  name: string;
+  targetCents: Cents;
+  /** Data límit opcional (ISO local). */
+  targetDate?: string;
+  accountIds: string[];
+  contributions: GoalContribution[];
+  color?: string;
+  notes?: string;
+  createdAt: string;
+  /** Aconseguit o abandonat: surt de la llista principal. */
+  archived?: boolean;
+}
+
+/** Límit de despesa mensual d'una categoria. Un per categoria (id = "limit_" + categoryId). */
+export interface SpendingLimit {
+  id: string;
+  categoryId: string;
+  monthlyCents: Cents;
+}
+
+/**
+ * Cobrament (o ingrés) periòdic: gimnàs, Netflix, assegurança... L'app en crea el moviment
+ * quan toca; si el compte s'importa, el moviment real substitueix el provisional.
+ */
+export interface Subscription {
+  id: string;
+  name: string;
+  /** Sempre positiu; el signe el dona `kind`. */
+  amountCents: Cents;
+  kind: 'expense' | 'income';
+  /** 1 = mensual, 3 = trimestral, 12 = anual... */
+  everyMonths: number;
+  /** Primer cobrament (ISO local). Els següents cauen el mateix dia del mes. */
+  startDate: string;
+  accountId: string;
+  categoryId?: string;
+  /** Data de baixa: no es generen cobraments posteriors. */
+  endDate?: string;
+  notes?: string;
+  /** Últim cobrament ja processat (creat o vinculat). Evita recrear els que esborris. */
+  generatedThrough?: string;
+  /** Com surt als extractes (s'aprèn del primer cobrament importat). */
+  bankDescription?: string;
 }
 
 /** Valor d'un compte en una data (per a comptes en mode 'valuations'). */

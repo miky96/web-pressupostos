@@ -17,6 +17,7 @@ import { Alert, EmptyState, Segmented, Switch } from './kit/Feedback';
 import { Icon } from './kit/Icon';
 import { KIND_LABELS, previousLabel } from './labels';
 import { TransactionForm } from './TransactionForm';
+import { BatchEntry } from './transactions/BatchEntry';
 import { PeriodPicker } from './transactions/PeriodPicker';
 import { SummaryPanel } from './transactions/SummaryPanel';
 import { TransactionDrawer } from './transactions/TransactionDrawer';
@@ -41,6 +42,8 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
   const [showFilters, setShowFilters] = useState(false);
   const [limit, setLimit] = useState(PAGE);
   const [creating, setCreating] = useState(false);
+  const [batch, setBatch] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   // "Aplicar als moviments iguals": activat per defecte en despeses, però no en entrades de diners
   // (devolucions, Bizums rebuts...), on la descripció és genèrica ("Money added via BIZUM") i una
@@ -77,7 +80,8 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
       byCategory: netExpenseByCategory(inPeriod(period, { ...filter, categoryIds: undefined, onlyNeedsReview: undefined }, effective)),
       reviewCount: withoutCategory.filter((t) => t.needsReview && !t.hidden).length,
       elsewhereCents: reportingView === 'consumption' ? recoveriesAttributedElsewhere(txs, periodRange(period)) : 0,
-      pending: pendingRecoveries(txs),
+      // Les despeses repartides entre persones ja compten com a deutes.
+      pending: pendingRecoveries(txs, data?.debts),
       recoveryInfo,
     };
   }, [data, period, filter, reportingView]);
@@ -203,13 +207,17 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
                 <Button icon="plus" onClick={() => setCreating(true)}>
                   Afegir a mà
                 </Button>
+                <Button icon="list" onClick={() => setBatch(true)}>
+                  Afegir diversos
+                </Button>
               </div>
             }
           >
-            Importa un extracte del banc o afegeix moviments a mà per començar.
+            Importa un extracte del banc o afegeix moviments a mà per començar. Totes dues maneres són vàlides i es poden combinar.
           </EmptyState>
         </div>
         <NewTransactionDrawer open={creating} budget={budget} onClose={() => setCreating(false)} />
+        <BatchDrawer open={batch} budget={budget} onClose={() => setBatch(false)} onSaved={setNotice} />
       </section>
     );
   }
@@ -219,11 +227,22 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
       <PageHeader
         title="Moviments"
         actions={
-          <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
-            Afegir moviment
-          </Button>
+          <>
+            <Button icon="list" onClick={() => setBatch(true)} title="Apunta'n uns quants de cop (p.ex. el repàs setmanal)">
+              Afegir diversos
+            </Button>
+            <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
+              Afegir moviment
+            </Button>
+          </>
         }
       />
+
+      {notice && (
+        <Alert tone="pos" className="mb-5" onClose={() => setNotice(null)}>
+          {notice}
+        </Alert>
+      )}
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <PeriodPicker period={period} onChange={changePeriod} defaultMonth={defaultMonth} />
@@ -387,14 +406,29 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
         />
       )}
       <NewTransactionDrawer open={creating} budget={budget} onClose={() => setCreating(false)} />
+      <BatchDrawer open={batch} budget={budget} onClose={() => setBatch(false)} onSaved={setNotice} />
     </section>
   );
 }
 
 function NewTransactionDrawer({ open, budget, onClose }: { open: boolean; budget: BudgetState; onClose: () => void }) {
   return (
-    <Drawer open={open} onClose={onClose} title="Nou moviment" subtitle="Efectiu, cobraments que no passen pel banc, aportacions...">
+    <Drawer open={open} onClose={onClose} title="Nou moviment" subtitle="Despeses, sopars compartits, Bizums, efectiu...">
       <TransactionForm budget={budget} onDone={onClose} />
+    </Drawer>
+  );
+}
+
+function BatchDrawer({ open, budget, onClose, onSaved }: { open: boolean; budget: BudgetState; onClose: () => void; onSaved: (msg: string) => void }) {
+  return (
+    <Drawer open={open} onClose={onClose} size="xl" title="Afegir diversos moviments" subtitle="Una fila per moviment. Si després importes l'extracte, es fusionaran amb els del banc.">
+      <BatchEntry
+        budget={budget}
+        onDone={(n) => {
+          onSaved(n === 1 ? "S'ha afegit 1 moviment." : `S'han afegit ${n} moviments.`);
+          onClose();
+        }}
+      />
     </Drawer>
   );
 }

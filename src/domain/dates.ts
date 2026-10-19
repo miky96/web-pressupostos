@@ -21,6 +21,13 @@ export function daysBetween(a: string, b: string): number {
   return (toEpochMs(b) - toEpochMs(a)) / 86_400_000;
 }
 
+/** Suma (o resta) dies a una data ISO local; conserva l'hora. */
+export function addDays(iso: string, days: number): string {
+  const d = new Date(toEpochMs(normalizeDate(iso)) + days * 86_400_000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+}
+
 /** "2025-10-24T08:06:52" -> "2025-10" */
 export function monthOf(iso: string): string {
   return iso.slice(0, 7);

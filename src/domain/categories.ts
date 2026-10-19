@@ -1,5 +1,5 @@
 import type { Rule } from './classification';
-import type { Category, Transaction } from './types';
+import type { Category, SpendingLimit, Subscription, Transaction } from './types';
 
 /** Colors suggerits per a categories noves (llegibles en mode clar i fosc). */
 export const CATEGORY_COLORS = [
@@ -43,6 +43,10 @@ export interface CategoryDeletionPlan {
   rulesToUpsert: Rule[];
   rulesToDelete: string[];
   categories: Category[];
+  /** Límit de despesa de la categoria eliminada: s'esborra (el destí pot tenir ja el seu). */
+  limitsToDelete: string[];
+  /** Subscripcions que passen a la categoria de destí. */
+  subscriptions: Subscription[];
 }
 
 /**
@@ -53,7 +57,7 @@ export interface CategoryDeletionPlan {
 export function planCategoryDeletion(
   categoryId: string,
   targetId: string | undefined,
-  data: { transactions: Transaction[]; rules: Rule[]; categories: Category[] },
+  data: { transactions: Transaction[]; rules: Rule[]; categories: Category[]; limits?: SpendingLimit[]; subscriptions?: Subscription[] },
 ): CategoryDeletionPlan {
   if (targetId === categoryId) throw new Error('La categoria de destí ha de ser una altra');
   if (targetId && !data.categories.some((c) => c.id === targetId)) throw new Error('La categoria de destí no existeix');
@@ -75,5 +79,9 @@ export function planCategoryDeletion(
     .filter((c) => c.parentId === categoryId)
     .map((c) => ({ ...c, parentId: undefined }));
 
-  return { transactions, rulesToUpsert, rulesToDelete, categories };
+  const limitsToDelete = (data.limits ?? []).filter((l) => l.categoryId === categoryId).map((l) => l.id);
+
+  const subscriptions = (data.subscriptions ?? []).filter((s) => s.categoryId === categoryId).map((s) => ({ ...s, categoryId: targetId }));
+
+  return { transactions, rulesToUpsert, rulesToDelete, categories, limitsToDelete, subscriptions };
 }

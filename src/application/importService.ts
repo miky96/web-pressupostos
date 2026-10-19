@@ -1,5 +1,7 @@
 import { classify, type MirrorTarget, type Rule } from '../domain/classification';
-import type { AccountType, Transaction, TransactionKind } from '../domain/types';
+import { reconcileManual, type ManualMatch } from '../domain/reconcile';
+import { reconcileImport } from '../domain/subscriptions';
+import type { AccountType, Debt, Subscription, Transaction, TransactionKind } from '../domain/types';
 import type { ImportIssue, ImportResult } from '../importers/types';
 import { pairInternalTransfers, pairReverts } from './pairing';
 
@@ -99,6 +101,11 @@ export interface ImportContext {
   accountIdByKey: Record<string, string>;
   /** Ids de moviments que ja existeixen (per no duplicar). */
   existingIds: Set<string>;
+  /** Per substituir els cobraments provisionals de subscripcions pels reals. */
+  existingTransactions?: Transaction[];
+  subscriptions?: Subscription[];
+  /** Per mantenir els enllaços dels moviments manuals que es fusionen amb els importats. */
+  debts?: Debt[];
 }
 
 export interface ImportPlan {
@@ -109,6 +116,18 @@ export interface ImportPlan {
   byKind: Record<TransactionKind, number>;
   skipped: ImportResult['skipped'];
   issues: ImportIssue[];
+  /**
+   * Moviments que els importats substitueixen i cal esborrar: cobraments provisionals de
+   * subscripcions i moviments apuntats a mà que ara arriben amb l'extracte.
+   */
+  replacedIds: string[];
+  /** Subscripcions que han après la descripció del banc. */
+  subscriptions: Subscription[];
+  /** Moviments apuntats a mà que es fusionen amb el seu moviment del banc. */
+  manualMatches: ManualMatch[];
+  /** Moviments existents i deutes que apuntaven als manuals fusionats (cal desar-los). */
+  updatedTransactions: Transaction[];
+  updatedDebts: Debt[];
 }
 
 export function planImport(result: ImportResult, ctx: ImportContext): ImportPlan {
@@ -118,7 +137,13 @@ export function planImport(result: ImportResult, ctx: ImportContext): ImportPlan
     return id;
   });
 
-  const fresh = txs.filter((t) => !ctx.existingIds.has(t.id));
+  const rec = reconcileImport(
+    txs.filter((t) => !ctx.existingIds.has(t.id)),
+    ctx.existingTransactions ?? [],
+    ctx.subscriptions ?? [],
+  );
+  const manual = reconcileManual(rec.transactions, ctx.existingTransactions ?? [], ctx.debts ?? []);
+  const fresh = manual.transactions;
   const byKind = { expense: 0, income: 0, transfer: 0, interest: 0, refund: 0, reimbursement: 0, loan: 0, adjustment: 0 };
   for (const t of fresh) byKind[t.kind]++;
 
@@ -129,6 +154,11 @@ export function planImport(result: ImportResult, ctx: ImportContext): ImportPlan
     byKind,
     skipped: result.skipped,
     issues: result.issues,
+    replacedIds: [...rec.replacedIds, ...manual.replacedIds],
+    subscriptions: rec.subscriptions,
+    manualMatches: manual.matches,
+    updatedTransactions: manual.updatedTransactions,
+    updatedDebts: manual.updatedDebts,
   };
 }
 

@@ -88,6 +88,17 @@ describe('pressupostos', () => {
     await assertFails(as(BOB).doc('budgets/personal-alice/debts/d2').set({ id: 'd2' }));
   });
 
+  it("l'owner pot gestionar objectius i límits; un altre usuari no", async () => {
+    await seedBudget('personal-alice', { alice: 'owner' });
+    await assertSucceeds(as(ALICE).doc('budgets/personal-alice/goals/g1').set({ id: 'g1', name: 'Cotxe', targetCents: 100000 }));
+    await assertSucceeds(as(ALICE).doc('budgets/personal-alice/limits/limit_oci').set({ id: 'limit_oci', categoryId: 'oci', monthlyCents: 20000 }));
+    await assertSucceeds(as(ALICE).collection('budgets/personal-alice/goals').get());
+    await assertFails(as(BOB).doc('budgets/personal-alice/goals/g1').get());
+    await assertFails(as(BOB).doc('budgets/personal-alice/limits/limit_x').set({ id: 'limit_x' }));
+    await assertSucceeds(as(ALICE).doc('budgets/personal-alice/subscriptions/s1').set({ id: 's1', name: 'Gimnàs', amountCents: 8300 }));
+    await assertFails(as(BOB).doc('budgets/personal-alice/subscriptions/s1').get());
+  });
+
   it('no es poden crear subcol·leccions desconegudes ni llistar pressupostos', async () => {
     await seedBudget('personal-alice', { alice: 'owner' });
     const db = as(ALICE);

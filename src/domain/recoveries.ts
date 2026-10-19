@@ -62,11 +62,15 @@ export function recoveryStatus(expense: Transaction, recoveries: Transaction[] =
   };
 }
 
-/** Despeses amb alguna cosa pendent de recuperar, de la més antiga a la més nova. */
-export function pendingRecoveries(txs: Transaction[]): RecoveryStatus[] {
+/**
+ * Despeses amb alguna cosa pendent de recuperar, de la més antiga a la més nova. Si es passen els
+ * deutes, se salten les despeses repartides entre persones: el seu pendent ja és als deutes.
+ */
+export function pendingRecoveries(txs: Transaction[], debts: Debt[] = []): RecoveryStatus[] {
   const index = recoveriesByExpense(txs);
+  const shared = new Set(debts.map((d) => d.expenseTxId).filter(Boolean));
   return txs
-    .filter((t) => !t.hidden && isRecoverableExpense(t) && (t.expectedBackCents ?? 0) > 0)
+    .filter((t) => !t.hidden && isRecoverableExpense(t) && (t.expectedBackCents ?? 0) > 0 && !shared.has(t.id))
     .map((t) => recoveryStatus(t, index.get(t.id)))
     .filter((s) => s.pendingCents > 0)
     .sort((a, b) => a.expense.date.localeCompare(b.expense.date));
@@ -174,11 +178,13 @@ export function cleanupLinks(deletedIds: Set<string>, txs: Transaction[], debts:
     .map((t) => ({ ...t, recoversTxId: undefined }));
   const debtOut: Debt[] = [];
   for (const d of debts) {
-    const touches = (d.txId && deletedIds.has(d.txId)) || d.repayments.some((r) => r.txId && deletedIds.has(r.txId));
+    const touches =
+      (d.txId && deletedIds.has(d.txId)) || (d.expenseTxId && deletedIds.has(d.expenseTxId)) || d.repayments.some((r) => r.txId && deletedIds.has(r.txId));
     if (!touches) continue;
     debtOut.push({
       ...d,
       txId: d.txId && deletedIds.has(d.txId) ? undefined : d.txId,
+      expenseTxId: d.expenseTxId && deletedIds.has(d.expenseTxId) ? undefined : d.expenseTxId,
       repayments: d.repayments.map((r) => (r.txId && deletedIds.has(r.txId) ? { ...r, txId: undefined } : r)),
     });
   }
@@ -243,9 +249,11 @@ export function suggestLinks(
   const index = recoveriesByExpense(txs);
   const out: LinkSuggestion[] = [];
   const bizum = /bizum/i.test(tx.description);
+  // Les despeses repartides entre persones es cobren a través del deute de cadascú.
+  const shared = new Set(debts.map((d) => d.expenseTxId).filter(Boolean));
 
   for (const e of txs) {
-    if (e.hidden || !isRecoverableExpense(e) || e.id === tx.id) continue;
+    if (e.hidden || !isRecoverableExpense(e) || e.id === tx.id || shared.has(e.id)) continue;
     const days = daysBetween(e.date, tx.date); // positiu: la despesa és anterior
     if (days > maxDaysBefore || days < -maxDaysAfter) continue;
     const status = recoveryStatus(e, index.get(e.id));

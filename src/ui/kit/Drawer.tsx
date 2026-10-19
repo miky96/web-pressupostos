@@ -9,8 +9,11 @@ export function Drawer({
   subtitle,
   headerActions,
   footer,
+  size = 'md',
   children,
 }: {
+  /** md: formularis i detalls; xl: graelles (alta de diversos moviments). */
+  size?: 'md' | 'xl';
   open: boolean;
   onClose: () => void;
   title: ReactNode;
@@ -35,7 +38,11 @@ export function Drawer({
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" onClick={onClose} />
-      <aside role="dialog" aria-modal="true" className="relative flex h-full w-full max-w-md flex-col border-l border-line bg-surface shadow-pop">
+      <aside
+        role="dialog"
+        aria-modal="true"
+        className={`relative flex h-full w-full flex-col border-l border-line bg-surface shadow-pop ${size === 'xl' ? 'max-w-5xl' : 'max-w-md'}`}
+      >
         <header className="flex items-start gap-3 border-b border-line px-5 py-4">
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-base font-semibold">{title}</h2>

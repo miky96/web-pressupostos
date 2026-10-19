@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { ACCOUNT_TYPE_LABELS, createAccount } from '../domain/accounts';
-import { accountBalance } from '../domain/balances';
+import { accountBalance, balanceAdjustment, bankBalanceCheck } from '../domain/balances';
 import { normalizeDate, todayIso } from '../domain/dates';
 import { effectiveTae, project } from '../domain/interest';
 import { accountPerformance } from '../domain/investments';
@@ -10,7 +10,7 @@ import { CategoryDot } from './CategoryAvatar';
 import { Button } from './kit/Button';
 import { Card, PageHeader, Stat } from './kit/Card';
 import { Drawer } from './kit/Drawer';
-import { Badge, EmptyState } from './kit/Feedback';
+import { Alert, Badge, EmptyState } from './kit/Feedback';
 import { Icon, type IconName } from './kit/Icon';
 import { ACCOUNT_GROUPS, formatDate, formatPct } from './labels';
 import { newId, type BudgetState } from './useBudget';
@@ -219,6 +219,149 @@ function NewAccountForm({ budget, onDone }: { budget: BudgetState; onDone: () =>
   );
 }
 
+/**
+ * Corregir el saldo d'un compte que es calcula amb moviments: escrius el que diu el banc i es crea
+ * un "Ajust de saldo" per la diferència (no és ni ingrés ni despesa, i es pot esborrar).
+ */
+function BalanceFix({ budget, account }: { budget: BudgetState; account: Account }) {
+  const { data, run } = budget;
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [day, setDay] = useState(todayIso().slice(0, 10));
+  const [note, setNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  if (!data) return null;
+
+  const txs = data.transactions;
+  const check = bankBalanceCheck(account, txs);
+  // Si després de l'últim extracte ja hi ha un ajust, ja s'ha corregit.
+  const alreadyFixed = check && txs.some((t) => t.accountId === account.id && t.kind === 'adjustment' && t.date >= check.date);
+  const mismatch = check && !alreadyFixed && check.bankCents !== check.appCents ? check : undefined;
+  const adjustments = txs.filter((t) => t.accountId === account.id && t.kind === 'adjustment').sort((a, b) => b.date.localeCompare(a.date));
+
+  async function apply(targetCents: number, at: string, why?: string) {
+    try {
+      setError(null);
+      const tx = balanceAdjustment(account, txs, targetCents, at, newId('tx'), why);
+      if (!tx) {
+        setDone('El saldo ja quadra: no cal cap ajust.');
+        return;
+      }
+      await run((repo) => repo.upsertTransactions([tx]));
+      setDone(`Ajust de ${formatCents(tx.amountCents, account.currency)} afegit. Pots esborrar-lo des de Moviments.`);
+      setOpen(false);
+      setAmount('');
+      setNote('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    try {
+      void apply(parseUserAmount(amount), day, note);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold">Saldo</h3>
+        {!open && (
+          <Button size="sm" icon="edit" onClick={() => setOpen(true)}>
+            Corregir saldo
+          </Button>
+        )}
+      </div>
+      {mismatch && (
+        <Alert
+          tone="warn"
+          title="El saldo no quadra amb l'últim extracte"
+          action={
+            <Button size="sm" onClick={() => apply(mismatch.bankCents, mismatch.date, "Quadrar amb l'extracte")}>
+              Quadrar
+            </Button>
+          }
+        >
+          El {formatDate(mismatch.date)} el banc deia {formatCents(mismatch.bankCents, account.currency)} i l'app en calcula{' '}
+          {formatCents(mismatch.appCents, account.currency)} ({formatCents(mismatch.appCents - mismatch.bankCents, account.currency)} de diferència). Pot ser un moviment
+          apuntat a mà i també importat, o un que falta.
+        </Alert>
+      )}
+      {done && (
+        <Alert tone="pos" onClose={() => setDone(null)}>
+          {done}
+        </Alert>
+      )}
+      {error && (
+        <Alert tone="neg" onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+      {open && (
+        <form className="space-y-3 rounded-xl border border-line p-4" onSubmit={submit}>
+          <p className="hint">Escriu el saldo que et mostra el banc. Es crearà un moviment “Ajust de saldo” per la diferència; no compta ni com a ingrés ni com a despesa.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="label">
+              Saldo real (€)
+              <input className="input" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00" required autoFocus />
+            </label>
+            <label className="label">
+              A final del dia
+              <input className="input" type="date" value={day} onChange={(e) => setDay(e.target.value)} required />
+            </label>
+          </div>
+          <label className="label">
+            Motiu
+            <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Opcional (p.ex. efectiu que no vaig apuntar)" />
+          </label>
+          {(() => {
+            const target = (() => {
+              try {
+                return amount.trim() ? parseUserAmount(amount) : null;
+              } catch {
+                return null;
+              }
+            })();
+            if (target === null) return null;
+            const current = accountBalance(account, txs, [], `${day}T23:59:59`).cents;
+            return (
+              <p className="text-sm">
+                Ara l'app hi calcula <span className="amount font-medium">{formatCents(current, account.currency)}</span>: l'ajust serà de{' '}
+                <span className="amount font-semibold">{formatCents(target - current, account.currency)}</span>.
+              </p>
+            );
+          })()}
+          <div className="flex gap-2">
+            <Button variant="primary" type="submit">
+              Ajustar
+            </Button>
+            <Button onClick={() => setOpen(false)}>Cancel·lar</Button>
+          </div>
+        </form>
+      )}
+      {adjustments.length > 0 && (
+        <ul className="divide-y divide-line rounded-lg border border-line">
+          {adjustments.slice(0, 5).map((t) => (
+            <li key={t.id} className="group flex items-center gap-3 px-3 py-2 text-sm">
+              <span className="text-ink-muted">{formatDate(t.date.slice(0, 10))}</span>
+              <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">{t.notes ?? t.description}</span>
+              <span className="amount font-medium">{formatCents(t.amountCents, account.currency)}</span>
+              <button className="text-ink-faint opacity-0 group-hover:opacity-100 hover:text-neg max-sm:opacity-100" onClick={() => run((repo) => repo.deleteTransactions([t.id]))} aria-label="Eliminar l'ajust" title="Eliminar l'ajust">
+                <Icon name="trash" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function AccountDetail({ budget, account }: { budget: BudgetState; account: Account }) {
   const { data, run } = budget;
   const [name, setName] = useState(account.name);
@@ -275,6 +418,8 @@ function AccountDetail({ budget, account }: { budget: BudgetState; account: Acco
           size="md"
         />
       </div>
+
+      {account.balanceMode === 'transactions' && <BalanceFix key={account.id} budget={budget} account={account} />}
 
       <section className="space-y-4">
         <h3 className="text-sm font-semibold">Dades del compte</h3>

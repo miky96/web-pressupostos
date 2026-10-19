@@ -10,8 +10,11 @@ import { Card, CardHeader, PageHeader, Stat } from './kit/Card';
 import { cx } from './kit/cx';
 import { Alert, Badge } from './kit/Feedback';
 import { Icon } from './kit/Icon';
-import { KIND_LABELS } from './labels';
+import { formatDate, KIND_LABELS } from './labels';
 import { newId, type BudgetState } from './useBudget';
+
+/** Provisionals de subscripcions substituïts (la resta de replacedIds són moviments manuals fusionats). */
+const subscriptionReplaced = (plan: ImportPlan) => plan.replacedIds.length - plan.manualMatches.length;
 
 interface Preview {
   fileName: string;
@@ -67,6 +70,9 @@ export function ImportPage({ budget }: { budget: BudgetState }) {
         rules: data!.rules,
         accountIdByKey: Object.fromEntries(accounts.map((a) => [a.importKey!, a.id])),
         existingIds: new Set(data!.transactions.map((t) => t.id)),
+        existingTransactions: data!.transactions,
+        subscriptions: data!.subscriptions,
+        debts: data!.debts,
       });
       setPreview({ fileName: file.name, result, plan, accounts, newAccountIds, changedAccounts });
     } catch (e) {
@@ -79,10 +85,18 @@ export function ImportPage({ budget }: { budget: BudgetState }) {
     await run(async (repo) => {
       await repo.upsertAccounts(preview.changedAccounts);
       await repo.upsertTransactions(preview.plan.transactions);
+      // Enllaços (Bizums, deutes) que apuntaven als moviments manuals que ara són els del banc.
+      if (preview.plan.updatedTransactions.length) await repo.upsertTransactions(preview.plan.updatedTransactions);
+      if (preview.plan.updatedDebts.length) await repo.upsertDebts(preview.plan.updatedDebts);
+      // Primer el real i després s'esborra el provisional: si falla a mig camí, no es perd el cobrament.
+      if (preview.plan.replacedIds.length) await repo.deleteTransactions(preview.plan.replacedIds);
+      if (preview.plan.subscriptions.length) await repo.upsertSubscriptions(preview.plan.subscriptions);
     });
     const archived = preview.changedAccounts.filter((a) => a.archived && a.closedAt).map((a) => a.name);
     setDone(
       `S'han importat ${preview.plan.transactions.length} moviments de ${preview.fileName}.` +
+        (subscriptionReplaced(preview.plan) ? ` ${subscriptionReplaced(preview.plan)} cobraments de subscripcions ja són els reals del banc.` : '') +
+        (preview.plan.manualMatches.length ? ` ${preview.plan.manualMatches.length} moviments apuntats a mà s'han fusionat amb els del banc.` : '') +
         (archived.length ? ` Comptes tancats pel banc i arxivats: ${archived.join(', ')}.` : ''),
     );
     setPreview(null);
@@ -156,6 +170,31 @@ export function ImportPage({ budget }: { budget: BudgetState }) {
                 ))}
             </div>
 
+            {subscriptionReplaced(preview.plan) > 0 && (
+              <Alert tone="info" title="Subscripcions">
+                {subscriptionReplaced(preview.plan) === 1
+                  ? 'Un cobrament provisional de subscripció se substituirà'
+                  : `${subscriptionReplaced(preview.plan)} cobraments provisionals de subscripcions se substituiran`}{' '}
+                pel moviment real del banc.
+              </Alert>
+            )}
+            {preview.plan.manualMatches.length > 0 && (
+              <Alert tone="info" title={`${preview.plan.manualMatches.length} moviments que ja havies apuntat a mà`}>
+                Es fusionaran amb el del banc: es manté la teva descripció, categoria i enllaços (Bizums, deutes), i el saldo quadra amb l'extracte.
+                <ul className="mt-2 space-y-0.5 text-xs">
+                  {preview.plan.manualMatches.slice(0, 12).map((m) => (
+                    <li key={m.manual.id} className="flex gap-2">
+                      <span className="text-ink-muted">{formatDate(m.manual.date)}</span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {m.manual.description} <span className="text-ink-faint">↔ {m.imported.description}</span>
+                      </span>
+                      <span className="amount">{formatCents(m.imported.amountCents)}</span>
+                    </li>
+                  ))}
+                  {preview.plan.manualMatches.length > 12 && <li className="text-ink-faint">i {preview.plan.manualMatches.length - 12} més…</li>}
+                </ul>
+              </Alert>
+            )}
             {errors.length > 0 && (
               <Alert tone="neg" title={`${errors.length} files amb errors (no s'importaran)`}>
                 <ul className="mt-1 list-disc pl-4">

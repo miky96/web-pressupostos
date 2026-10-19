@@ -1,8 +1,8 @@
 import type { BudgetData, BudgetRepository } from '../application/ports';
 import type { BudgetSettings } from '../domain/types';
 
-export type CollectionName = 'accounts' | 'transactions' | 'categories' | 'rules' | 'valuations' | 'debts';
-export const COLLECTIONS: readonly CollectionName[] = ['accounts', 'transactions', 'categories', 'rules', 'valuations', 'debts'];
+export type CollectionName = 'accounts' | 'transactions' | 'categories' | 'rules' | 'valuations' | 'debts' | 'goals' | 'limits' | 'subscriptions';
+export const COLLECTIONS: readonly CollectionName[] = ['accounts', 'transactions', 'categories', 'rules', 'valuations', 'debts', 'goals', 'limits', 'subscriptions'];
 
 export type WriteOp =
   | { op: 'set'; collection: CollectionName; id: string; data: { id: string } }
@@ -110,6 +110,12 @@ export class CachedBudgetRepository implements BudgetRepository {
   deleteValuations = (ids: string[]) => this.remove('valuations', ids);
   upsertDebts = (items: BudgetData['debts']) => this.upsert('debts', items);
   deleteDebts = (ids: string[]) => this.remove('debts', ids);
+  upsertGoals = (items: BudgetData['goals']) => this.upsert('goals', items);
+  deleteGoals = (ids: string[]) => this.remove('goals', ids);
+  upsertLimits = (items: BudgetData['limits']) => this.upsert('limits', items);
+  deleteLimits = (ids: string[]) => this.remove('limits', ids);
+  upsertSubscriptions = (items: BudgetData['subscriptions']) => this.upsert('subscriptions', items);
+  deleteSubscriptions = (ids: string[]) => this.remove('subscriptions', ids);
 
   async saveSettings(settings: BudgetSettings): Promise<void> {
     await this.commit([{ op: 'settings', settings }]);
@@ -141,7 +147,7 @@ export class MemoryBudgetStore implements BudgetStore {
     for (const op of ops) {
       if (op.op === 'settings') this.state.settings = { ...op.settings };
       else {
-        const list = this.state[op.collection] as { id: string }[];
+        const list = (this.state[op.collection] ??= []) as { id: string }[];
         const i = list.findIndex((x) => x.id === op.id);
         if (i >= 0) list.splice(i, 1);
         if (op.op === 'set') list.push(structuredClone(op.data));
