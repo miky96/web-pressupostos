@@ -82,7 +82,7 @@ export function TransactionsPage({ budget, onNavigate }: { budget: BudgetState; 
       reviewCount: withoutCategory.filter((t) => t.needsReview && !t.hidden).length,
       elsewhereCents: reportingView === 'consumption' ? recoveriesAttributedElsewhere(txs, periodRange(period)) : 0,
       // Les despeses repartides entre persones ja compten com a deutes.
-      pending: pendingRecoveries(txs, data?.debts),
+      pending: pendingRecoveries(txs),
       sharedOwedCents: (data?.shared ?? []).reduce((s, i) => s + summarizeShared(i, txs).withPeople.reduce((a, p) => a + Math.max(p.cents, 0), 0), 0),
       recoveryInfo,
     };

@@ -139,8 +139,8 @@ export interface Debt {
   /** Moviment amb què vas deixar els diners (p.ex. el Bizum enviat). */
   txId?: string;
   /**
-   * La part d'aquesta persona d'una despesa compartida que vas pagar tu (un sopar...). Els seus
-   * retorns són reemborsaments enllaçats a aquella despesa, no préstecs.
+   * @deprecated Format antic de les despeses repartides (la part d'aquesta persona d'una despesa
+   * que vas pagar tu). Ara són coses compartides: només el llegeix `migrateDebtSplits`.
    */
   expenseTxId?: string;
 }
@@ -261,6 +261,49 @@ export interface SharedItem {
   notes?: string;
   createdAt: string;
   archived?: boolean;
+}
+
+/** Compra o venda d'accions (o ETF, fons...). Imports en la moneda del valor. */
+export interface StockTrade {
+  id: string;
+  date: string;
+  side: 'buy' | 'sell';
+  /** Nombre de títols (pot ser fraccionari). */
+  quantity: number;
+  /** Títols × preu, sense comissió. */
+  grossCents: Cents;
+  feeCents: Cents;
+  /**
+   * Euros per unitat de la moneda el dia de l'operació (p.ex. 0,92 per a USD). Serveix per calcular
+   * el guany en euros (el que demana Hisenda). Si falta, es fa servir el tipus de canvi actual.
+   */
+  eurRate?: number;
+  note?: string;
+}
+
+/** Un valor que tens o has tingut (AAPL, VWCE...). La posició es calcula a partir de les operacions. */
+export interface StockHolding {
+  id: string;
+  /** Ticker en majúscules. */
+  symbol: string;
+  name?: string;
+  /** Moneda en què cotitza (EUR, USD...). */
+  currency: string;
+  /** Compte del broker (tipus inversió): permet desar-ne el valor com a valoració. */
+  accountId?: string;
+  trades: StockTrade[];
+  /** Últim preu per títol que has apuntat (cèntims de la moneda; pot tenir decimals). */
+  lastPrice?: { cents: number; date: string };
+  notes?: string;
+  archived?: boolean;
+}
+
+/** Tipus de canvi actual d'una moneda a euros (id = codi de la moneda). */
+export interface FxRate {
+  id: string;
+  /** Euros per unitat de moneda: 1 USD = 0,92 EUR -> 0.92. */
+  eurPerUnit: number;
+  date: string;
 }
 
 /** Valor d'un compte en una data (per a comptes en mode 'valuations'). */

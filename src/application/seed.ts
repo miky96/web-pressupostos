@@ -22,6 +22,8 @@ export function initialData(settings: BudgetSettings = DEFAULT_SETTINGS): Budget
     limits: [],
     subscriptions: [],
     shared: [],
+    holdings: [],
+    fxRates: [],
     settings,
   };
 }

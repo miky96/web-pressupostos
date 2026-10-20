@@ -1,8 +1,8 @@
 import type { BudgetData, BudgetRepository } from '../application/ports';
 import type { BudgetSettings } from '../domain/types';
 
-export type CollectionName = 'accounts' | 'transactions' | 'categories' | 'rules' | 'valuations' | 'debts' | 'goals' | 'limits' | 'subscriptions' | 'shared';
-export const COLLECTIONS: readonly CollectionName[] = ['accounts', 'transactions', 'categories', 'rules', 'valuations', 'debts', 'goals', 'limits', 'subscriptions', 'shared'];
+export type CollectionName = 'accounts' | 'transactions' | 'categories' | 'rules' | 'valuations' | 'debts' | 'goals' | 'limits' | 'subscriptions' | 'shared' | 'holdings' | 'fxRates';
+export const COLLECTIONS: readonly CollectionName[] = ['accounts', 'transactions', 'categories', 'rules', 'valuations', 'debts', 'goals', 'limits', 'subscriptions', 'shared', 'holdings', 'fxRates'];
 
 export type WriteOp =
   | { op: 'set'; collection: CollectionName; id: string; data: { id: string } }
@@ -118,6 +118,10 @@ export class CachedBudgetRepository implements BudgetRepository {
   deleteSubscriptions = (ids: string[]) => this.remove('subscriptions', ids);
   upsertShared = (items: BudgetData['shared']) => this.upsert('shared', items);
   deleteShared = (ids: string[]) => this.remove('shared', ids);
+  upsertHoldings = (items: BudgetData['holdings']) => this.upsert('holdings', items);
+  deleteHoldings = (ids: string[]) => this.remove('holdings', ids);
+  upsertFxRates = (items: BudgetData['fxRates']) => this.upsert('fxRates', items);
+  deleteFxRates = (ids: string[]) => this.remove('fxRates', ids);
 
   async saveSettings(settings: BudgetSettings): Promise<void> {
     await this.commit([{ op: 'settings', settings }]);

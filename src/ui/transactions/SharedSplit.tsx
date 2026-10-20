@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import { formatCents, parseUserAmount } from '../../domain/money';
-import { equalSplit, type ShareInput } from '../../domain/sharedExpenses';
+import { equalSplit, type ShareInput } from '../../domain/shared';
 import { Button } from '../kit/Button';
 import { cx } from '../kit/cx';
 
@@ -151,7 +151,7 @@ export function SharedSplit({
         ))}
       </datalist>
       <p className="hint">
-        Es crea un deute per persona (motiu: la descripció). Els que ja t'han pagat queden saldats amb el seu Bizum; la resta, pendents a Deutes.
+        Es crea una cosa compartida a Compartit amb aquesta despesa. Els que ja t'han pagat queden quadrats amb el seu Bizum; la resta hi surten com a pendents.
         {value.rows.some((r) => r.share !== undefined) && (
           <>
             {' '}

@@ -12,7 +12,6 @@ import {
   repaidCents,
   saveDebt,
   summarizeDebts,
-  syncSharedExpected,
 } from '../domain/debts';
 import { pendingRecoveries, setRecoveryClosed, suggestRepaymentTxs, type RecoveryStatus } from '../domain/recoveries';
 import { formatCents, parseUserAmount } from '../domain/money';
@@ -51,8 +50,7 @@ export function DebtsPage({ budget }: { budget: BudgetState }) {
   const [showSettled, setShowSettled] = useState(false);
   const debts = useMemo(() => data?.debts ?? [], [data]);
   const summary = useMemo(() => summarizeDebts(debts), [debts]);
-  // Les despeses repartides entre persones surten com a deutes de cadascú, no aquí.
-  const shared = useMemo(() => pendingRecoveries(data?.transactions ?? [], data?.debts), [data]);
+  const shared = useMemo(() => pendingRecoveries(data?.transactions ?? []), [data]);
   if (!data) return null;
   const sharedPending = shared.reduce((s, r) => s + r.pendingCents, 0);
 
@@ -96,7 +94,7 @@ export function DebtsPage({ budget }: { budget: BudgetState }) {
     <section className="max-w-4xl">
       <PageHeader
         title="Deutes"
-        subtitle="Diners que t'han de tornar: préstecs (pots crear-los des d'un Bizum enviat) i despeses que has pagat per altres. Enllaça els Bizums que et fan perquè no comptin com a ingrés."
+        subtitle="Diners que has deixat a algú (pots crear-los des d'un Bizum enviat). Les despeses que pagues per altres es porten des de Compartit. Enllaça els Bizums que et fan perquè no comptin com a ingrés."
         actions={
           <Button variant="primary" icon="plus" onClick={() => setOpen({ mode: 'new' })}>
             Nou deute
@@ -192,13 +190,7 @@ function DebtForm({ budget, debt, initialPerson, onDone, onCancel }: { budget: B
     e.preventDefault();
     try {
       const saved = saveDebt({ person, amountCents: parseUserAmount(amount), reason, date, notes }, debt?.id ?? newId('debt'), debt);
-      // Si és la part d'una despesa compartida, el que esperes recuperar del sopar canvia amb ella.
-      const expense = saved.expenseTxId ? budget.data?.transactions.find((t) => t.id === saved.expenseTxId) : undefined;
-      const synced = expense && syncSharedExpected(expense, [...(budget.data?.debts ?? []).filter((d) => d.id !== saved.id), saved]);
-      await budget.run(async (repo) => {
-        await repo.upsertDebts([saved]);
-        if (synced) await repo.upsertTransactions([synced]);
-      });
+      await budget.run((repo) => repo.upsertDebts([saved]));
       onDone(saved.id);
     } catch (err) {
       setError(errorText(err));
@@ -259,12 +251,12 @@ function DebtDrawer({ budget, debt, onClose }: { budget: BudgetState; debt: Debt
   const [error, setError] = useState<string | null>(null);
 
   const txs = budget.data?.transactions ?? [];
-  const origin = debt.txId ? txs.find((t) => t.id === debt.txId) : debt.expenseTxId ? txs.find((t) => t.id === debt.expenseTxId) : undefined;
+  const origin = debt.txId ? txs.find((t) => t.id === debt.txId) : undefined;
   const candidates = settled ? [] : suggestRepaymentTxs(debt, txs, budget.data?.debts ?? []);
 
   async function linkTx(tx: (typeof txs)[number]) {
     try {
-      const r = linkRepaymentTx(debt, tx, newId('rep'), txs.find((t) => t.id === debt.expenseTxId));
+      const r = linkRepaymentTx(debt, tx, newId('rep'));
       await budget.run(async (repo) => {
         await repo.upsertDebts([r.debt]);
         await repo.upsertTransactions([r.tx]);
@@ -305,13 +297,11 @@ function DebtDrawer({ budget, debt, onClose }: { budget: BudgetState; debt: Debt
 
   async function remove() {
     const released = releaseDebtTxs(debt, txs);
-    const expense = debt.expenseTxId ? txs.find((t) => t.id === debt.expenseTxId) : undefined;
-    const synced = expense && syncSharedExpected(expense, (budget.data?.debts ?? []).filter((d) => d.id !== debt.id));
     const extra = released.length ? `\n\nEls ${released.length} moviments enllaçats tornaran a comptar com a despesa o reemborsament.` : '';
     if (!window.confirm(`Eliminar el deute de ${debt.person} (${formatCents(debt.amountCents)})?${extra}`)) return;
     await budget.run(async (repo) => {
       await repo.deleteDebts([debt.id]);
-      if (released.length || synced) await repo.upsertTransactions([...released, ...(synced ? [synced] : [])]);
+      if (released.length) await repo.upsertTransactions(released);
     });
     onClose();
   }
@@ -353,7 +343,7 @@ function DebtDrawer({ budget, debt, onClose }: { budget: BudgetState; debt: Debt
             </div>
             <dl className="mt-4 divide-y divide-line border-t border-line text-sm">
               <div className="flex justify-between py-2">
-                <dt className="text-ink-muted">{debt.expenseTxId ? 'La seva part' : 'Deixat'}</dt>
+                <dt className="text-ink-muted">Deixat</dt>
                 <dd className="amount font-medium">{formatCents(debt.amountCents)}</dd>
               </div>
               <div className="flex justify-between py-2">
@@ -362,7 +352,7 @@ function DebtDrawer({ budget, debt, onClose }: { budget: BudgetState; debt: Debt
               </div>
               {origin && (
                 <div className="flex justify-between gap-4 py-2">
-                  <dt className="text-ink-muted">{debt.expenseTxId ? 'Despesa compartida' : 'Moviment'}</dt>
+                  <dt className="text-ink-muted">Moviment</dt>
                   <dd className="flex min-w-0 items-center gap-1.5 truncate">
                     <Icon name="link" className="size-3.5 shrink-0 text-ink-faint" />
                     <span className="truncate">{origin.description}</span>

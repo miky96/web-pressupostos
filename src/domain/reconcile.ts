@@ -87,11 +87,10 @@ export function remapTxRefs(map: Map<string, string>, txs: Transaction[], debts:
   const to = (id?: string) => (id && map.has(id) ? map.get(id) : id);
   const outTxs = txs.filter((t) => t.recoversTxId && map.has(t.recoversTxId)).map((t) => ({ ...t, recoversTxId: to(t.recoversTxId) }));
   const outDebts = debts
-    .filter((d) => [d.txId, d.expenseTxId, ...d.repayments.map((r) => r.txId)].some((id) => id && map.has(id)))
+    .filter((d) => [d.txId, ...d.repayments.map((r) => r.txId)].some((id) => id && map.has(id)))
     .map((d) => ({
       ...d,
       txId: to(d.txId),
-      expenseTxId: to(d.expenseTxId),
       repayments: d.repayments.map((r) => ({ ...r, txId: to(r.txId) })),
     }));
   return { txs: outTxs, debts: outDebts };

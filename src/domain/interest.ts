@@ -30,14 +30,23 @@ export interface Flow {
 }
 
 /**
- * Valor estimat d'un compte remunerat a `asOf`: cada import creix a la TAE des de la seva data.
- * `start` és l'última valoració coneguda (opcional).
+ * Dies d'interès meritats entre dues dates, com fan els bancs: només dies naturals sencers.
+ * L'interès es calcula sobre el saldo de final de cada dia i s'abona l'endemà, així que l'hora no
+ * compta i el dia en curs encara no ha generat res.
+ */
+export function accruedDays(from: string, to: string): number {
+  return Math.max(0, Math.round(daysBetween(from.slice(0, 10), to.slice(0, 10))));
+}
+
+/**
+ * Valor estimat d'un compte remunerat a `asOf`: cada import creix a la TAE des de la seva data,
+ * per dies sencers (vegeu accruedDays). `start` és l'última valoració coneguda (opcional).
  */
 export function estimateValue(start: Flow | undefined, flows: Flow[], tae: number, asOf: string): Cents {
   const all = start ? [start, ...flows] : flows;
   const total = all
     .filter((f) => f.date <= asOf)
-    .reduce((sum, f) => sum + f.amountCents * growthFactor(tae, daysBetween(f.date, asOf)), 0);
+    .reduce((sum, f) => sum + f.amountCents * growthFactor(tae, accruedDays(f.date, asOf)), 0);
   return Math.round(total);
 }
 
