@@ -137,6 +137,12 @@ describe('corregir el saldo', () => {
     expect(balanceAdjustment(account, txs, 8500, '2026-10-10', 'adj')).toBeNull();
   });
 
+  it("un ajust amb hora concreta (avui, ara) es veu al saldo d'aquell moment", () => {
+    const adj = balanceAdjustment(account, txs, 8000, '2026-10-10T18:30:00', 'adj');
+    expect(adj?.date).toBe('2026-10-10T18:30:00');
+    expect(accountBalance(account, [...txs, adj!], [], '2026-10-10T18:30:00').cents).toBe(8000);
+  });
+
   it("detecta quan el saldo de l'extracte no quadra amb l'app", () => {
     const withBalance = [tx('2026-10-01', -2500, 'expense', { balanceAfterCents: 7500 }), tx('2026-10-05', 1000, 'income', { balanceAfterCents: 8500 })];
     expect(bankBalanceCheck(account, withBalance)).toMatchObject({ bankCents: 8500, appCents: 8500 });
