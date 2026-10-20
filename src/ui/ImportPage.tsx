@@ -73,6 +73,7 @@ export function ImportPage({ budget }: { budget: BudgetState }) {
         existingTransactions: data!.transactions,
         subscriptions: data!.subscriptions,
         debts: data!.debts,
+        shared: data!.shared,
       });
       setPreview({ fileName: file.name, result, plan, accounts, newAccountIds, changedAccounts });
     } catch (e) {
@@ -88,6 +89,7 @@ export function ImportPage({ budget }: { budget: BudgetState }) {
       // Enllaços (Bizums, deutes) que apuntaven als moviments manuals que ara són els del banc.
       if (preview.plan.updatedTransactions.length) await repo.upsertTransactions(preview.plan.updatedTransactions);
       if (preview.plan.updatedDebts.length) await repo.upsertDebts(preview.plan.updatedDebts);
+      if (preview.plan.updatedShared.length) await repo.upsertShared(preview.plan.updatedShared);
       // Primer el real i després s'esborra el provisional: si falla a mig camí, no es perd el cobrament.
       if (preview.plan.replacedIds.length) await repo.deleteTransactions(preview.plan.replacedIds);
       if (preview.plan.subscriptions.length) await repo.upsertSubscriptions(preview.plan.subscriptions);

@@ -51,6 +51,7 @@ export function SummaryPanel({
   elsewhereCents = 0,
   pendingRecoveryCents = 0,
   pendingDebtCents = 0,
+  pendingSharedCents = 0,
   onOpenPending,
 }: {
   totals: PeriodSummary;
@@ -65,9 +66,11 @@ export function SummaryPanel({
   elsewhereCents?: Cents;
   pendingRecoveryCents?: Cents;
   pendingDebtCents?: Cents;
+  /** El que et deuen per coses compartides. */
+  pendingSharedCents?: Cents;
   onOpenPending?: () => void;
 }) {
-  const pendingTotal = pendingRecoveryCents + pendingDebtCents;
+  const pendingTotal = pendingRecoveryCents + pendingDebtCents + pendingSharedCents;
   const [showAll, setShowAll] = useState(false);
   const income = totals.incomeCents + totals.interestCents;
   const prevIncome = previous && previous.incomeCents + previous.interestCents;
@@ -122,7 +125,8 @@ export function SummaryPanel({
           <span className="min-w-0 flex-1">
             <span className="font-medium">Pendent de cobrar: {formatCents(pendingTotal)}</span>
             <span className="block truncate text-xs text-ink-muted">
-              {[pendingRecoveryCents > 0 && `${formatCents(pendingRecoveryCents)} de despeses compartides`, pendingDebtCents > 0 && `${formatCents(pendingDebtCents)} de deutes`]
+              {[pendingRecoveryCents > 0 && `${formatCents(pendingRecoveryCents)} de despeses compartides`, pendingDebtCents > 0 && `${formatCents(pendingDebtCents)} de deutes`,
+                pendingSharedCents > 0 && `${formatCents(pendingSharedCents)} de coses compartides`]
                 .filter(Boolean)
                 .join(' · ')}
             </span>

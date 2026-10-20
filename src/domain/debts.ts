@@ -74,7 +74,7 @@ export interface DebtSummary {
   byPerson: PersonDebts[];
 }
 
-const personKey = (p: string) => p.trim().toLocaleLowerCase('ca');
+export const personKey = (p: string) => p.trim().toLocaleLowerCase('ca');
 
 export function summarizeDebts(debts: Debt[]): DebtSummary {
   const groups = new Map<string, PersonDebts>();

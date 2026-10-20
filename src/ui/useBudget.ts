@@ -20,8 +20,10 @@ export function useBudget(repo: BudgetRepository) {
         setError(null);
         await action(repo);
         await reload();
+        return true;
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
+        return false;
       }
     },
     [repo, reload],

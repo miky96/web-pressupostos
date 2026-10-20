@@ -204,6 +204,65 @@ export interface Subscription {
   bankDescription?: string;
 }
 
+/** Id reservat del participant que ets tu a les coses compartides. */
+export const ME = 'me';
+
+/** Persona que participa en una cosa compartida. `weight` = la seva part per defecte (1 = a parts iguals). */
+export interface SharedParticipant {
+  id: string;
+  name: string;
+  weight: number;
+}
+
+/** Una despesa d'una cosa compartida: qui l'ha pagat i quant li toca a cadascú. */
+export interface SharedExpense {
+  id: string;
+  date: string;
+  description: string;
+  totalCents: Cents;
+  /** Participant -> quant ha pagat. Suma = total. */
+  paidBy: Record<string, Cents>;
+  /** Participant -> la seva part. Suma = total. Es congela en desar (canviar el repartiment no reescriu l'historial). */
+  shares: Record<string, Cents>;
+  /** El teu moviment real (si l'has pagat tu). El seu import ha de ser el que has pagat. */
+  txId?: string;
+  notes?: string;
+}
+
+/** Diners que una persona dona a una altra per quadrar comptes (Bizum, efectiu...). */
+export interface SharedSettlement {
+  id: string;
+  date: string;
+  fromId: string;
+  toId: string;
+  amountCents: Cents;
+  /** El teu moviment real (si l'has enviat o rebut tu). */
+  txId?: string;
+  note?: string;
+}
+
+/**
+ * Cosa compartida: una compra amb amics, un viatge, el pis, el cotxe, una subscripció a mitges...
+ * Els saldos de cadascú es calculen: el que ha pagat - el que li toca + el que ha enviat - el que ha rebut.
+ */
+export interface SharedItem {
+  id: string;
+  name: string;
+  /** 'oneoff': es tanca quan quadra (un regal, un viatge). 'ongoing': no s'acaba (pis, cotxe, Netflix). */
+  kind: 'oneoff' | 'ongoing';
+  participants: SharedParticipant[];
+  categoryId?: string;
+  /** Cada cobrament d'aquesta subscripció compta com a despesa compartida pagada per tu. */
+  subscriptionId?: string;
+  /** Només es compten els cobraments de la subscripció a partir d'aquesta data. */
+  subscriptionSince?: string;
+  expenses: SharedExpense[];
+  settlements: SharedSettlement[];
+  notes?: string;
+  createdAt: string;
+  archived?: boolean;
+}
+
 /** Valor d'un compte en una data (per a comptes en mode 'valuations'). */
 export interface Valuation {
   id: string;

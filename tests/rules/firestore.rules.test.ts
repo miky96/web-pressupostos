@@ -97,6 +97,8 @@ describe('pressupostos', () => {
     await assertFails(as(BOB).doc('budgets/personal-alice/limits/limit_x').set({ id: 'limit_x' }));
     await assertSucceeds(as(ALICE).doc('budgets/personal-alice/subscriptions/s1').set({ id: 's1', name: 'Gimnàs', amountCents: 8300 }));
     await assertFails(as(BOB).doc('budgets/personal-alice/subscriptions/s1').get());
+    await assertSucceeds(as(ALICE).doc('budgets/personal-alice/shared/sh1').set({ id: 'sh1', name: 'Pis', expenses: [], settlements: [] }));
+    await assertFails(as(BOB).doc('budgets/personal-alice/shared/sh1').get());
   });
 
   it('no es poden crear subcol·leccions desconegudes ni llistar pressupostos', async () => {

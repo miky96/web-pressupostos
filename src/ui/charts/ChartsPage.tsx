@@ -56,7 +56,7 @@ export default function ChartsPage({ budget }: { budget: BudgetState }) {
     const from = `${months[0]}-01T00:00:00`;
     const to = endOfMonth(months.at(-1)!);
     // Ingressos i despeses segons la vista triada; el patrimoni sempre amb els moviments reals.
-    const effective = attributeForView(data.transactions, reportingView);
+    const effective = attributeForView(data.transactions, reportingView, data.shared);
     const txs = effective.filter((t) => (!accountIds || accountIds.has(t.accountId)) && t.date >= from && t.date <= to);
     return {
       months,

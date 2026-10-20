@@ -30,7 +30,7 @@ const today = () => todayIso().slice(0, 10);
  * la data i el tipus, per apuntar-ne uns quants seguits.
  */
 export function TransactionForm({ budget, onDone }: { budget: BudgetState; onDone: () => void }) {
-  const { data, run, lookups } = budget;
+  const { data, run, lookups, error: saveError, setError: setSaveError } = budget;
   const accounts = (data?.accounts ?? []).filter((a) => !a.archived);
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? '');
   const [toAccountId, setToAccountId] = useState(accounts[1]?.id ?? '');
@@ -77,6 +77,7 @@ export function TransactionForm({ budget, onDone }: { budget: BudgetState; onDon
     let debts: Debt[] = [];
     try {
       setError(null);
+      setSaveError(null);
       const amountCents = parseUserAmount(amount);
       const account = lookups.accounts.get(accountId)!;
       if (kind === 'transfer') {
@@ -103,10 +104,11 @@ export function TransactionForm({ budget, onDone }: { budget: BudgetState; onDon
       setError(err instanceof Error ? err.message : String(err));
       return;
     }
-    await run(async (repo) => {
+    const ok = await run(async (repo) => {
       await repo.upsertTransactions(txs);
       if (debts.length) await repo.upsertDebts(debts);
     });
+    if (!ok) return; // l'error es mostra al costat dels botons
     if (!keepOpen) return onDone();
     setAdded((a) => [
       { key: txs[0].id, label: txs[0].description, amountCents: txs[0].amountCents, txIds: txs.map((t) => t.id), debtIds: debts.map((d) => d.id) },
@@ -123,10 +125,12 @@ export function TransactionForm({ budget, onDone }: { budget: BudgetState; onDon
     setAdded((a) => a.filter((x) => x.key !== item.key));
   }
 
-  const submit = (e: FormEvent) => {
+  const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    // Els dos botons són submit perquè el navegador validi els camps obligatoris.
     // Un cop has començat a apuntar-ne uns quants, Enter continua.
-    void save(added.length > 0);
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLElement | null;
+    void save(added.length > 0 || submitter?.dataset.keepOpen === 'true');
   };
 
   const common: TransactionKind[] = ['expense', 'income', 'transfer'];
@@ -136,11 +140,6 @@ export function TransactionForm({ budget, onDone }: { budget: BudgetState; onDon
 
   return (
     <form className="space-y-5" onSubmit={submit}>
-      {error && (
-        <Alert tone="neg" onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
       <div className="grid grid-cols-4 gap-1 rounded-lg bg-subtle p-1">
         {[...common, 'other' as const].map((k) => {
           const active = k === 'other' ? isOther : kind === k;
@@ -275,13 +274,26 @@ export function TransactionForm({ budget, onDone }: { budget: BudgetState; onDon
         <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
       </label>
 
+      {/* Al costat dels botons: amb la despesa compartida el formulari és llarg i a dalt no es veuria. */}
+      {(error ?? saveError) && (
+        <Alert
+          tone="neg"
+          onClose={() => {
+            setError(null);
+            setSaveError(null);
+          }}
+        >
+          {error ?? saveError}
+        </Alert>
+      )}
+
       <div className="flex flex-wrap gap-2 pt-2">
         {added.length === 0 ? (
           <>
             <Button variant="primary" type="submit" className="flex-1">
               Afegir
             </Button>
-            <Button onClick={() => save(true)} title="Desa i deixa el formulari obert amb el mateix compte i data">
+            <Button type="submit" data-keep-open="true" title="Desa i deixa el formulari obert amb el mateix compte i data">
               Afegir i continuar
             </Button>
           </>

@@ -8,8 +8,9 @@
  */
 import { daysBetween } from './dates';
 import { descriptionTokens } from './recoveries';
+import { remapSharedRefs } from './shared';
 import { isPlaceholder } from './subscriptions';
-import type { Debt, Transaction } from './types';
+import type { Debt, SharedItem, Transaction } from './types';
 
 export interface ManualMatch {
   manual: Transaction;
@@ -105,9 +106,10 @@ export interface ManualReconciliation {
   /** Moviments existents i deutes que apuntaven als manuals substituïts. */
   updatedTransactions: Transaction[];
   updatedDebts: Debt[];
+  updatedShared: SharedItem[];
 }
 
-export function reconcileManual(incoming: Transaction[], existing: Transaction[], debts: Debt[]): ManualReconciliation {
+export function reconcileManual(incoming: Transaction[], existing: Transaction[], debts: Debt[], shared: SharedItem[] = []): ManualReconciliation {
   const matches = matchManualEntries(incoming, existing);
   const map = new Map(matches.map((m) => [m.manual.id, m.imported.id]));
   const mergedById = new Map(matches.map((m) => [m.imported.id, mergeManual(m.manual, m.imported)]));
@@ -115,5 +117,12 @@ export function reconcileManual(incoming: Transaction[], existing: Transaction[]
   // Un Bizum fusionat pot apuntar a un sopar que també s'ha fusionat.
   transactions = transactions.map((t) => (t.recoversTxId && map.has(t.recoversTxId) ? { ...t, recoversTxId: map.get(t.recoversTxId) } : t));
   const remapped = remapTxRefs(map, existing.filter((t) => !map.has(t.id)), debts);
-  return { transactions, matches, replacedIds: [...map.keys()], updatedTransactions: remapped.txs, updatedDebts: remapped.debts };
+  return {
+    transactions,
+    matches,
+    replacedIds: [...map.keys()],
+    updatedTransactions: remapped.txs,
+    updatedDebts: remapped.debts,
+    updatedShared: remapSharedRefs(map, shared),
+  };
 }

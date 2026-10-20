@@ -12,6 +12,7 @@ import { formatDate } from './labels';
 import { Icon, type IconName } from './kit/Icon';
 import { RulesPage } from './RulesPage';
 import { SettingsPage } from './SettingsPage';
+import { SharedPage } from './shared/SharedPage';
 import { SubscriptionsPage } from './subscriptions/SubscriptionsPage';
 import { useSubscriptionAutoRun } from './subscriptions/useSubscriptionAutoRun';
 import { TransactionsPage } from './TransactionsPage';
@@ -26,6 +27,7 @@ const TABS: Record<string, { label: string; icon: IconName }> = {
   comptes: { label: 'Comptes', icon: 'wallet' },
   objectius: { label: 'Objectius', icon: 'target' },
   subscripcions: { label: 'Subscripcions', icon: 'repeat' },
+  compartit: { label: 'Compartit', icon: 'split' },
   deutes: { label: 'Deutes', icon: 'users' },
   importar: { label: 'Importar', icon: 'upload' },
   categories: { label: 'Categories', icon: 'tag' },
@@ -34,7 +36,7 @@ const TABS: Record<string, { label: string; icon: IconName }> = {
 };
 type Tab = keyof typeof TABS;
 /** A mòbil només caben 4 pestanyes + "Més". Importar és a "Més": l'alta manual és igual de vàlida. */
-const MOBILE_PRIMARY: Tab[] = ['moviments', 'grafiques', 'comptes', 'deutes'];
+const MOBILE_PRIMARY: Tab[] = ['moviments', 'grafiques', 'comptes', 'compartit'];
 
 /** Present quan l'app funciona amb Firebase (hi ha un usuari autenticat). */
 export interface AccountInfo {
@@ -151,6 +153,7 @@ export function App({ repo, account }: { repo: BudgetRepository; account?: Accou
         {tab === 'comptes' && <AccountsPage budget={budget} />}
         {tab === 'objectius' && <GoalsPage budget={budget} />}
         {tab === 'subscripcions' && <SubscriptionsPage budget={budget} />}
+        {tab === 'compartit' && <SharedPage budget={budget} onNavigate={go} />}
         {tab === 'deutes' && <DebtsPage budget={budget} />}
         {tab === 'importar' && <ImportPage budget={budget} />}
         {tab === 'categories' && <CategoriesPage budget={budget} />}
