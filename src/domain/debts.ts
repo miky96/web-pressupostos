@@ -27,7 +27,6 @@ export function saveDebt(input: DebtInput, id: string, current?: Debt): Debt {
     repayments,
     notes: input.notes?.trim() || undefined,
     txId: current?.txId,
-    expenseTxId: current?.expenseTxId,
   };
 }
 
@@ -118,19 +117,16 @@ export function debtFromTransaction(
 }
 
 /**
- * Registra com a retorn del deute una entrada real de diners (p.ex. el Bizum rebut).
- * Si el deute és la part d'una despesa compartida, el Bizum queda com a reemborsament d'aquella
- * despesa (a la vista de consum resta del sopar); si és un préstec, com a 'loan'.
+ * Registra com a retorn del deute una entrada real de diners (p.ex. el Bizum rebut). El moviment
+ * passa a ser 'loan': no compta com a ingrés.
  */
-export function linkRepaymentTx(debt: Debt, tx: Transaction, id: string, expense?: Transaction): { debt: Debt; tx: Transaction } {
+export function linkRepaymentTx(debt: Debt, tx: Transaction, id: string): { debt: Debt; tx: Transaction } {
   if (tx.amountCents <= 0) throw new Error('Només una entrada de diners pot ser un retorn');
   if (debt.repayments.some((r) => r.txId === tx.id)) throw new Error('Aquest moviment ja és un retorn del deute');
   const next = addRepayment(debt, { date: tx.date, amountCents: tx.amountCents, note: tx.description }, id);
   return {
     debt: { ...next, repayments: next.repayments.map((r) => (r.id === id ? { ...r, txId: tx.id } : r)) },
-    tx: debt.expenseTxId
-      ? editTransaction(tx, { kind: 'reimbursement', recoversTxId: debt.expenseTxId, categoryId: expense?.categoryId ?? tx.categoryId })
-      : editTransaction(tx, { kind: 'loan', categoryId: undefined }),
+    tx: editTransaction(tx, { kind: 'loan', categoryId: undefined }),
   };
 }
 
@@ -147,35 +143,8 @@ export function releaseDebtTxs(debt: Debt, txs: Transaction[], repaymentIds?: Se
     if (repaymentIds && !repaymentIds.has(r.id)) continue;
     const t = r.txId ? byId.get(r.txId) : undefined;
     if (t?.kind === 'loan') out.push({ ...editTransaction(t, { kind: 'reimbursement' }), needsReview: true });
-    else if (t && debt.expenseTxId && t.recoversTxId === debt.expenseTxId) {
-      out.push({ ...editTransaction(t, { recoversTxId: undefined }), needsReview: true });
-    }
   }
   return out;
-}
-
-// --- Despeses compartides ------------------------------------------------------------------
-
-/** Deutes que són parts d'una despesa compartida, agrupats per la despesa. */
-export function debtsByExpense(debts: Debt[]): Map<string, Debt[]> {
-  const out = new Map<string, Debt[]>();
-  for (const d of debts) {
-    if (!d.expenseTxId) continue;
-    out.set(d.expenseTxId, [...(out.get(d.expenseTxId) ?? []), d]);
-  }
-  return out;
-}
-
-/**
- * Torna a calcular quant esperes recuperar d'una despesa compartida a partir de les parts
- * (deutes) que hi pengen: si edites o esborres un deute, la despesa ho reflecteix.
- * Retorna undefined si no cal canviar res.
- */
-export function syncSharedExpected(expense: Transaction, debts: Debt[]): Transaction | undefined {
-  const shares = debts.filter((d) => d.expenseTxId === expense.id).reduce((s, d) => s + d.amountCents, 0);
-  const expected = Math.min(shares, -expense.amountCents);
-  if (expected === (expense.expectedBackCents ?? 0)) return undefined;
-  return editTransaction(expense, { expectedBackCents: expected || undefined, recoveryClosed: expected ? expense.recoveryClosed : undefined });
 }
 
 export interface DebtLink {

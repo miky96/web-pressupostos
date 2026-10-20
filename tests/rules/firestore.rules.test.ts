@@ -99,6 +99,10 @@ describe('pressupostos', () => {
     await assertFails(as(BOB).doc('budgets/personal-alice/subscriptions/s1').get());
     await assertSucceeds(as(ALICE).doc('budgets/personal-alice/shared/sh1').set({ id: 'sh1', name: 'Pis', expenses: [], settlements: [] }));
     await assertFails(as(BOB).doc('budgets/personal-alice/shared/sh1').get());
+    await assertSucceeds(as(ALICE).doc('budgets/personal-alice/holdings/h1').set({ id: 'h1', symbol: 'AAPL', currency: 'USD', trades: [] }));
+    await assertSucceeds(as(ALICE).doc('budgets/personal-alice/fxRates/USD').set({ id: 'USD', eurPerUnit: 0.92, date: '2026-10-20T00:00:00' }));
+    await assertFails(as(BOB).doc('budgets/personal-alice/holdings/h1').get());
+    await assertFails(as(BOB).doc('budgets/personal-alice/fxRates/USD').set({ id: 'USD', eurPerUnit: 1 }));
   });
 
   it('no es poden crear subcol·leccions desconegudes ni llistar pressupostos', async () => {

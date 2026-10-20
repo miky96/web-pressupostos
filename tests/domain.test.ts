@@ -215,3 +215,15 @@ describe('bulkEditTransactions', () => {
     expect(bulkEditTransactions([t], { notes: null })[0].notes).toBeUndefined();
   });
 });
+
+describe('estimateValue per dies sencers', () => {
+  it("una valoració d'ahir només guanya un dia d'interès, sigui l'hora que sigui", () => {
+    const start = { date: '2026-10-19T00:00:00', amountCents: 310000 };
+    const oneDay = Math.round(310000 * 1.0247 ** (1 / 365));
+    expect(estimateValue(start, [], 0.0247, '2026-10-20T18:00:00')).toBe(oneDay);
+    expect(estimateValue(start, [], 0.0247, '2026-10-20T00:30:00')).toBe(oneDay);
+  });
+  it('el dia de la valoració no genera interès', () => {
+    expect(estimateValue({ date: '2026-10-20T00:00:00', amountCents: 310000 }, [], 0.0247, '2026-10-20T23:00:00')).toBe(310000);
+  });
+});

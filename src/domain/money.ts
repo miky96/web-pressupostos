@@ -18,6 +18,13 @@ export function parseUserAmount(input: string): Cents {
   return parseDecimalToCents(input.trim().replace(',', '.'));
 }
 
+/** Nombre amb decimals introduït per l'usuari ("1,5", "0.0123"): quantitats d'accions, preus, tipus de canvi. */
+export function parseUserNumber(input: string): number {
+  const s = input.trim().replace(/\s/g, '').replace(',', '.');
+  if (!/^\d+(\.\d{1,10})?$/.test(s)) throw new Error(`Nombre no vàlid: "${input}"`);
+  return Number(s);
+}
+
 export function formatCents(cents: Cents, currency = 'EUR', locale = 'ca-ES'): string {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(cents / 100);
 }

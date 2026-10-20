@@ -1,10 +1,9 @@
 import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { todayIso } from '../domain/dates';
-import { knownPeople } from '../domain/debts';
 import { formatCents, parseUserAmount } from '../domain/money';
-import { splitExpense } from '../domain/sharedExpenses';
+import { knownNames, splitToShared } from '../domain/shared';
 import { createManualTransaction, createManualTransfer, knownDescriptions, suggestFromHistory } from '../domain/transactions';
-import { isNeutralKind, TRANSACTION_KINDS, type Debt, type Transaction, type TransactionKind } from '../domain/types';
+import { isNeutralKind, TRANSACTION_KINDS, type SharedItem, type Transaction, type TransactionKind } from '../domain/types';
 import { Button } from './kit/Button';
 import { cx } from './kit/cx';
 import { Alert, Switch } from './kit/Feedback';
@@ -19,7 +18,7 @@ interface Added {
   label: string;
   amountCents: number;
   txIds: string[];
-  debtIds: string[];
+  sharedIds: string[];
 }
 
 const today = () => todayIso().slice(0, 10);
@@ -46,7 +45,7 @@ export function TransactionForm({ budget, onDone }: { budget: BudgetState; onDon
   const [error, setError] = useState<string | null>(null);
   const amountRef = useRef<HTMLInputElement>(null);
   const descriptions = useMemo(() => knownDescriptions(data?.transactions ?? []), [data]);
-  const people = useMemo(() => knownPeople(data?.debts ?? []), [data]);
+  const people = useMemo(() => knownNames(data?.shared ?? [], data?.debts ?? []), [data]);
 
   if (!data) return null;
   if (accounts.length === 0) return <p className="text-sm text-ink-muted">Primer crea un compte (pestanya Comptes) o importa un extracte.</p>;
@@ -74,7 +73,7 @@ export function TransactionForm({ budget, onDone }: { budget: BudgetState; onDon
 
   async function save(keepOpen: boolean) {
     let txs: Transaction[] = [];
-    let debts: Debt[] = [];
+    let shared: SharedItem[] = [];
     try {
       setError(null);
       setSaveError(null);
@@ -92,12 +91,13 @@ export function TransactionForm({ budget, onDone }: { budget: BudgetState; onDon
         );
         txs = [tx];
         if (isShared) {
-          const r = splitExpense(tx, buildShares(split, Math.abs(amountCents), accountId), {
+          const r = splitToShared(tx, buildShares(split, Math.abs(amountCents), accountId), {
             newId,
+            createdAt: todayIso(),
             currencyOf: (id) => lookups.accounts.get(id)?.currency,
           });
-          txs = [r.expense, ...r.reimbursements];
-          debts = r.debts;
+          txs = r.txs;
+          shared = [r.item];
         }
       }
     } catch (err) {
@@ -106,12 +106,12 @@ export function TransactionForm({ budget, onDone }: { budget: BudgetState; onDon
     }
     const ok = await run(async (repo) => {
       await repo.upsertTransactions(txs);
-      if (debts.length) await repo.upsertDebts(debts);
+      if (shared.length) await repo.upsertShared(shared);
     });
     if (!ok) return; // l'error es mostra al costat dels botons
     if (!keepOpen) return onDone();
     setAdded((a) => [
-      { key: txs[0].id, label: txs[0].description, amountCents: txs[0].amountCents, txIds: txs.map((t) => t.id), debtIds: debts.map((d) => d.id) },
+      { key: txs[0].id, label: txs[0].description, amountCents: txs[0].amountCents, txIds: txs.map((t) => t.id), sharedIds: shared.map((s) => s.id) },
       ...a,
     ]);
     reset();
@@ -120,7 +120,7 @@ export function TransactionForm({ budget, onDone }: { budget: BudgetState; onDon
   async function undo(item: Added) {
     await run(async (repo) => {
       await repo.deleteTransactions(item.txIds);
-      if (item.debtIds.length) await repo.deleteDebts(item.debtIds);
+      if (item.sharedIds.length) await repo.deleteShared(item.sharedIds);
     });
     setAdded((a) => a.filter((x) => x.key !== item.key));
   }
@@ -257,7 +257,7 @@ export function TransactionForm({ budget, onDone }: { budget: BudgetState; onDon
           <label className="flex cursor-pointer items-center justify-between gap-3 text-sm">
             <span>
               <span className="font-medium">Despesa compartida</span>
-              <span className="hint block">Has pagat per altres (un sopar...) i et tornen la seva part.</span>
+              <span className="hint block">Has pagat per altres (un sopar...) i et tornen la seva part. Es porta des de Compartit.</span>
             </span>
             <Switch checked={shared} onChange={setShared} label="Despesa compartida" />
           </label>

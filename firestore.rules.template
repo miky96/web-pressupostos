@@ -59,9 +59,9 @@ service cloud.firestore {
       allow delete: if false;
 
       match /{collection}/{docId} {
-        allow read: if collection in ['accounts', 'transactions', 'categories', 'rules', 'valuations', 'debts', 'goals', 'limits', 'subscriptions', 'shared']
+        allow read: if collection in ['accounts', 'transactions', 'categories', 'rules', 'valuations', 'debts', 'goals', 'limits', 'subscriptions', 'shared', 'holdings', 'fxRates']
           && canReadBudget(budgetId);
-        allow write: if collection in ['accounts', 'transactions', 'categories', 'rules', 'valuations', 'debts', 'goals', 'limits', 'subscriptions', 'shared']
+        allow write: if collection in ['accounts', 'transactions', 'categories', 'rules', 'valuations', 'debts', 'goals', 'limits', 'subscriptions', 'shared', 'holdings', 'fxRates']
           && canWriteBudget(budgetId);
       }
     }

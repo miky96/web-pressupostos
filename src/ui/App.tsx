@@ -13,6 +13,8 @@ import { Icon, type IconName } from './kit/Icon';
 import { RulesPage } from './RulesPage';
 import { SettingsPage } from './SettingsPage';
 import { SharedPage } from './shared/SharedPage';
+import { useDebtSplitMigration } from './shared/useDebtSplitMigration';
+import { StocksPage } from './stocks/StocksPage';
 import { SubscriptionsPage } from './subscriptions/SubscriptionsPage';
 import { useSubscriptionAutoRun } from './subscriptions/useSubscriptionAutoRun';
 import { TransactionsPage } from './TransactionsPage';
@@ -25,6 +27,7 @@ const TABS: Record<string, { label: string; icon: IconName }> = {
   moviments: { label: 'Moviments', icon: 'list' },
   grafiques: { label: 'Gràfiques', icon: 'trend' },
   comptes: { label: 'Comptes', icon: 'wallet' },
+  inversions: { label: 'Inversions', icon: 'briefcase' },
   objectius: { label: 'Objectius', icon: 'target' },
   subscripcions: { label: 'Subscripcions', icon: 'repeat' },
   compartit: { label: 'Compartit', icon: 'split' },
@@ -58,6 +61,7 @@ export function Logo({ className }: { className?: string }) {
 export function App({ repo, account }: { repo: BudgetRepository; account?: AccountInfo }) {
   const budget = useBudget(repo);
   const autoRun = useSubscriptionAutoRun(budget);
+  const migration = useDebtSplitMigration(budget);
   const [tab, setTab] = useState<Tab>('moviments');
   const [moreOpen, setMoreOpen] = useState(false);
   const go = (t: Tab) => {
@@ -143,6 +147,25 @@ export function App({ repo, account }: { repo: BudgetRepository; account?: Accou
             {autoRun.created.length > 4 && ' …'}
           </Alert>
         )}
+        {migration.migrated.length > 0 && (
+          <Alert
+            tone="info"
+            className="mb-6"
+            title={
+              migration.migrated.length === 1
+                ? "S'ha passat una despesa repartida de Deutes a Compartit"
+                : `S'han passat ${migration.migrated.length} despeses repartides de Deutes a Compartit`
+            }
+            onClose={migration.dismiss}
+            action={
+              <button className="text-sm font-medium underline-offset-2 hover:underline" onClick={() => go('compartit')}>
+                Veure
+              </button>
+            }
+          >
+            Ara qui et deu què d'un sopar o unes entrades es porta des de Compartit. A Deutes només hi queden els préstecs.
+          </Alert>
+        )}
         {!budget.data && <div className="py-20 text-center text-sm text-ink-muted">Carregant…</div>}
         {tab === 'moviments' && <TransactionsPage budget={budget} onNavigate={go} />}
         {tab === 'grafiques' && (
@@ -151,6 +174,7 @@ export function App({ repo, account }: { repo: BudgetRepository; account?: Accou
           </Suspense>
         )}
         {tab === 'comptes' && <AccountsPage budget={budget} />}
+        {tab === 'inversions' && <StocksPage budget={budget} />}
         {tab === 'objectius' && <GoalsPage budget={budget} />}
         {tab === 'subscripcions' && <SubscriptionsPage budget={budget} />}
         {tab === 'compartit' && <SharedPage budget={budget} onNavigate={go} />}

@@ -187,7 +187,7 @@ export function summarizeShared(item: SharedItem, txs: Transaction[]): SharedSum
 export interface PersonPosition {
   key: string;
   name: string;
-  /** El que et deu pels deutes (préstecs i parts de despeses repartides). */
+  /** El que et deu pels préstecs (Deutes). */
   debtCents: Cents;
   /** El que et deu (> 0) o li deus (< 0) per les coses compartides. */
   sharedCents: Cents;
@@ -427,7 +427,6 @@ export function linkCandidates(
   const debtTx = new Set<string>();
   for (const d of debts) {
     if (d.txId) debtTx.add(d.txId);
-    if (d.expenseTxId) debtTx.add(d.expenseTxId);
     for (const r of d.repayments) if (r.txId) debtTx.add(r.txId);
   }
   const near = opts.near ? Date.parse(opts.near.slice(0, 10)) : Date.now();
@@ -481,6 +480,220 @@ export function remapSharedRefs(map: Map<string, string>, items: SharedItem[]): 
       settlements: i.settlements.map((s) => ({ ...s, txId: to(s.txId) })),
     }));
 }
+
+// --- Repartir una despesa de pressa (sopar, entrades...) --------------------------------------
+
+/** Repartiment a parts iguals entre `people` persones (tu inclòs). Els cèntims que sobren són teus. */
+export function equalSplit(totalCents: Cents, people: number): { mineCents: Cents; eachCents: Cents } {
+  const n = Math.max(1, Math.floor(people));
+  const eachCents = Math.floor(totalCents / n);
+  return { eachCents, mineCents: totalCents - eachCents * (n - 1) };
+}
+
+export interface SharePayment {
+  amountCents: Cents;
+  /** YYYY-MM-DD o ISO local. */
+  date: string;
+  /** Compte on t'ha arribat (per defecte, el de la despesa). */
+  accountId?: string;
+  description?: string;
+}
+
+export interface ShareInput {
+  person: string;
+  shareCents: Cents;
+  /** Ja t'ho ha tornat (Bizum, efectiu...). Pot ser una part. */
+  paid?: SharePayment;
+}
+
+export interface SplitOptions {
+  newId: (prefix: string) => string;
+  createdAt: string;
+  currencyOf?: (accountId: string) => string | undefined;
+}
+
+/**
+ * Converteix una despesa que has pagat tu en una cosa compartida puntual: tu ho has pagat tot, cada
+ * persona té la seva part i els que ja t'han tornat diners hi surten com a liquidació (amb un
+ * moviment nou de reemborsament). El que falta per cobrar es veu a Compartit.
+ */
+export function splitToShared(expense: Transaction, shares: ShareInput[], { newId, createdAt, currencyOf }: SplitOptions): { item: SharedItem; txs: Transaction[] } {
+  if (expense.amountCents >= 0 || expense.kind !== 'expense') throw new Error('Només es pot repartir una despesa');
+  if (shares.length === 0) throw new Error('Afegeix almenys una persona');
+  const gross = -expense.amountCents;
+  const others: SharedInput['others'] = [];
+  const keys = new Set<string>();
+  for (const s of shares) {
+    const person = s.person.trim();
+    if (!person) throw new Error('Cal el nom de cada persona');
+    if (keys.has(personKey(person))) throw new Error(`${person} surt dues vegades`);
+    keys.add(personKey(person));
+    if (!(s.shareCents > 0)) throw new Error(`La part de ${person} ha de ser més gran que 0`);
+    if (s.paid && !(s.paid.amountCents > 0)) throw new Error(`L'import que t'ha tornat ${person} ha de ser més gran que 0`);
+    if (s.paid && s.paid.amountCents > s.shareCents) throw new Error(`${person} no et pot tornar més que la seva part`);
+    others.push({ id: newId('p'), name: person, weight: 1 });
+  }
+  const othersCents = sum(shares.map((s) => s.shareCents));
+  if (othersCents > gross) throw new Error('Les parts dels altres sumen més que la despesa');
+
+  let item = saveShared({ name: expense.description, kind: 'oneoff', others, myWeight: 1, categoryId: expense.categoryId }, newId('shared'), newId, createdAt);
+  const shareRecord: Record<string, Cents> = { [ME]: gross - othersCents };
+  shares.forEach((s, i) => (shareRecord[others[i].id!] = s.shareCents));
+  const linked = txForLink(item, expense);
+  item = saveExpense(item, { date: expense.date, description: expense.description, totalCents: gross, paidBy: { [ME]: gross }, shares: shareRecord, txId: expense.id }, newId('se'), linked);
+
+  const txs: Transaction[] = [linked];
+  shares.forEach((s, i) => {
+    if (!s.paid) return;
+    const accountId = s.paid.accountId ?? expense.accountId;
+    const tx: Transaction = {
+      id: newId('tx'),
+      accountId,
+      date: normalizeDate(s.paid.date),
+      amountCents: s.paid.amountCents,
+      feeCents: 0,
+      currency: currencyOf?.(accountId) ?? expense.currency,
+      description: s.paid.description?.trim() || `Bizum de ${others[i].name}`,
+      kind: 'reimbursement',
+      categoryId: expense.categoryId,
+      source: 'manual',
+      userEdited: true,
+    };
+    txs.push(tx);
+    item = saveSettlement(item, { date: tx.date, fromId: others[i].id!, toId: ME, amountCents: tx.amountCents, txId: tx.id }, newId('st'), tx);
+  });
+  return { item, txs };
+}
+
+// --- Suggeriments per a entrades de diners ----------------------------------------------------
+
+export interface SettlementSuggestion {
+  item: SharedItem;
+  /** Qui et deu diners en aquesta cosa. */
+  personId: string;
+  name: string;
+  /** El que et deu en total en aquesta cosa. */
+  owedCents: Cents;
+  score: number;
+  reason: string;
+}
+
+/**
+ * Coses compartides on algú et deu almenys l'import d'aquesta entrada (un Bizum rebut): pot ser
+ * que te'l faci per quadrar. Revolut no diu qui fa el Bizum, així que compta sobretot l'import.
+ */
+export function suggestSettlements(tx: Transaction, items: SharedItem[], txs: Transaction[], limit = 3): SettlementSuggestion[] {
+  if (tx.amountCents <= 0 || tx.hidden || sharedLinksByTx(items, txs).has(tx.id)) return [];
+  const out: SettlementSuggestion[] = [];
+  for (const item of items) {
+    if (item.archived) continue;
+    for (const w of summarizeShared(item, txs).withPeople) {
+      if (w.cents < tx.amountCents) continue;
+      const nameHit = tx.description.toLocaleLowerCase('ca').includes(w.name.trim().toLocaleLowerCase('ca'));
+      const exact = w.cents === tx.amountCents;
+      out.push({
+        item,
+        personId: w.id,
+        name: w.name,
+        owedCents: w.cents,
+        score: 0.25 + (exact ? 0.4 : 0) + (nameHit ? 0.3 : 0),
+        reason: [nameHit && 'mateix nom', exact ? 'ho salda' : 'et deu diners'].filter(Boolean).join(' · '),
+      });
+    }
+  }
+  return out.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+/** Registra una entrada de diners com a liquidació d'algú cap a tu. */
+export function linkSettlementTx(item: SharedItem, personId: string, tx: Transaction, id: string): { item: SharedItem; tx: Transaction } {
+  const linked = txForLink(item, tx);
+  return { item: saveSettlement(item, { date: tx.date, fromId: personId, toId: ME, amountCents: tx.amountCents, txId: tx.id }, id, linked), tx: linked };
+}
+
+// --- Migració: despeses repartides a Deutes -> coses compartides ------------------------------
+
+export interface DebtSplitMigration {
+  shared: SharedItem[];
+  txs: Transaction[];
+  deleteDebtIds: string[];
+}
+
+/**
+ * Abans, repartir una despesa creava un deute per persona (`Debt.expenseTxId`) i hi lligava els
+ * Bizums. Ara és una cosa compartida puntual. Els ids són deterministes: si la migració es talla a
+ * mitges, tornar-la a executar dona el mateix resultat.
+ *
+ * Si la despesa estava tancada ("ja no espero cobrar-ne més"), el que faltava passa a ser part teva.
+ */
+export function migrateDebtSplits(debts: Debt[], txs: Transaction[], createdAt: string): DebtSplitMigration {
+  const byId = new Map(txs.map((t) => [t.id, t]));
+  const groups = new Map<string, Debt[]>();
+  for (const d of debts) if (d.expenseTxId) groups.set(d.expenseTxId, [...(groups.get(d.expenseTxId) ?? []), d]);
+  const out: DebtSplitMigration = { shared: [], txs: [], deleteDebtIds: [] };
+
+  for (const [expenseId, group] of groups) {
+    group.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+    const expense = byId.get(expenseId);
+    const people = new Map<string, SharedParticipant>();
+    for (const d of group) {
+      const key = personKey(d.person);
+      if (!people.has(key)) people.set(key, { id: `p_mig_${people.size + 1}`, name: d.person.trim(), weight: 1 });
+    }
+    const pid = (d: Debt) => people.get(personKey(d.person))!.id;
+    const closed = !!expense?.recoveryClosed;
+    const shares: Record<string, Cents> = {};
+    for (const d of group) shares[pid(d)] = (shares[pid(d)] ?? 0) + (closed ? Math.min(debtRepaid(d), d.amountCents) : d.amountCents);
+    const othersCents = sum(Object.values(shares));
+    const gross = expense && expense.amountCents < 0 ? -expense.amountCents : 0;
+    const total = Math.max(gross, sum(group.map((d) => d.amountCents)));
+    shares[ME] = total - othersCents;
+
+    const item: SharedItem = {
+      id: `shared_mig_${expenseId}`,
+      name: expense?.description || group[0].reason || 'Despesa compartida',
+      kind: 'oneoff',
+      participants: [{ id: ME, name: 'Tu', weight: 1 }, ...people.values()],
+      categoryId: expense?.categoryId,
+      expenses: [
+        {
+          id: `se_mig_${expenseId}`,
+          date: expense?.date ?? group[0].date,
+          description: expense?.description || group[0].reason || 'Despesa',
+          totalCents: total,
+          paidBy: { [ME]: total },
+          shares: clean(shares),
+          txId: expense && gross === total ? expense.id : undefined,
+        },
+      ],
+      settlements: group
+        .flatMap((d) =>
+          d.repayments.map((r) => ({
+            id: `st_mig_${r.id}`,
+            date: r.date,
+            fromId: pid(d),
+            toId: ME,
+            amountCents: r.amountCents,
+            txId: r.txId && byId.get(r.txId)?.amountCents === r.amountCents ? r.txId : undefined,
+            note: r.note,
+          })),
+        )
+        .sort((a, b) => a.date.localeCompare(b.date)),
+      notes: 'Passat de Deutes a Compartit.',
+      createdAt: expense?.date ?? group[0].date ?? createdAt,
+    };
+    if (closed && !item.settlements.length && othersCents === 0) item.archived = true;
+    out.shared.push(item);
+    if (item.expenses[0].txId) out.txs.push(txForLink(item, expense!));
+    for (const s of item.settlements) {
+      const t = s.txId ? byId.get(s.txId) : undefined;
+      if (t) out.txs.push(txForLink(item, t));
+    }
+    out.deleteDebtIds.push(...group.map((d) => d.id));
+  }
+  return out;
+}
+
+const debtRepaid = (d: Debt) => sum(d.repayments.map((r) => r.amountCents));
 
 // --- Consum real ---------------------------------------------------------------------------
 

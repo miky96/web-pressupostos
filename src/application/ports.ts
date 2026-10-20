@@ -1,5 +1,5 @@
 import type { Rule } from '../domain/classification';
-import type { Account, BudgetSettings, Category, Debt, SavingsGoal, SharedItem, SpendingLimit, Subscription, Transaction, Valuation } from '../domain/types';
+import type { Account, BudgetSettings, Category, Debt, FxRate, SavingsGoal, SharedItem, SpendingLimit, StockHolding, Subscription, Transaction, Valuation } from '../domain/types';
 
 export interface BudgetData {
   accounts: Account[];
@@ -12,6 +12,8 @@ export interface BudgetData {
   limits: SpendingLimit[];
   subscriptions: Subscription[];
   shared: SharedItem[];
+  holdings: StockHolding[];
+  fxRates: FxRate[];
   settings: BudgetSettings;
 }
 
@@ -43,9 +45,22 @@ export interface BudgetRepository {
   deleteSubscriptions(ids: string[]): Promise<void>;
   upsertShared(items: SharedItem[]): Promise<void>;
   deleteShared(ids: string[]): Promise<void>;
+  upsertHoldings(items: StockHolding[]): Promise<void>;
+  deleteHoldings(ids: string[]): Promise<void>;
+  upsertFxRates(items: FxRate[]): Promise<void>;
+  deleteFxRates(ids: string[]): Promise<void>;
   saveSettings(settings: BudgetSettings): Promise<void>;
   /** Substitueix totes les dades (restaurar una còpia de seguretat). */
   replaceAll(data: BudgetData): Promise<void>;
+}
+
+/**
+ * Port per obtenir cotitzacions automàticament (encara sense implementació: ara els preus
+ * s'apunten a mà). Un adaptador podria cridar una API gratuïta des d'una Cloud Function.
+ */
+export interface PriceProvider {
+  /** Últim preu per títol (cèntims, pot tenir decimals) de cada ticker que trobi. */
+  latestPrices(symbols: string[]): Promise<Record<string, { cents: number; currency: string; date: string }>>;
 }
 
 export interface SessionUser {
