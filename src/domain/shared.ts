@@ -242,6 +242,7 @@ export interface SharedInput {
   others: { id?: string; name: string; weight: number }[];
   myWeight: number;
   categoryId?: string;
+  physical?: boolean;
   subscriptionId?: string;
   subscriptionSince?: string;
   notes?: string;
@@ -283,6 +284,7 @@ export function saveShared(input: SharedInput, id: string, newId: (prefix: strin
     kind: input.kind,
     participants,
     categoryId: input.categoryId || undefined,
+    physical: input.physical || undefined,
     subscriptionId: input.subscriptionId || undefined,
     subscriptionSince: input.subscriptionId && input.subscriptionSince ? normalizeDate(input.subscriptionSince) : undefined,
     expenses: current?.expenses ?? [],

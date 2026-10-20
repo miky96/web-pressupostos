@@ -22,6 +22,7 @@ export function SharedForm({ budget, item, onDone, onCancel }: { budget: BudgetS
     item ? item.participants.filter((p) => p.id !== ME).map((p) => ({ id: p.id, name: p.name, weight: String(p.weight) })) : [{ name: '', weight: '1' }],
   );
   const [categoryId, setCategoryId] = useState(item?.categoryId ?? '');
+  const [physical, setPhysical] = useState(item?.physical ?? false);
   const [subscriptionId, setSubscriptionId] = useState(item?.subscriptionId ?? '');
   const [since, setSince] = useState(item?.subscriptionSince?.slice(0, 10) ?? todayIso().slice(0, 10));
   const [notes, setNotes] = useState(item?.notes ?? '');
@@ -42,6 +43,7 @@ export function SharedForm({ budget, item, onDone, onCancel }: { budget: BudgetS
           myWeight: toWeight(myWeight),
           others: rows.map((r) => ({ id: r.id, name: r.name, weight: toWeight(r.weight) })),
           categoryId,
+          physical,
           subscriptionId,
           subscriptionSince: since,
           notes,
@@ -80,6 +82,13 @@ export function SharedForm({ budget, item, onDone, onCancel }: { budget: BudgetS
         />
         <p className="hint">{kind === 'oneoff' ? "Una compra o un viatge: quan quadra, s'acaba." : "El pis, el cotxe, una subscripció: no s'acaba mai, només es van quadrant comptes."}</p>
       </div>
+      <label className="flex items-start gap-2.5 text-sm">
+        <input type="checkbox" className="checkbox mt-0.5" checked={physical} onChange={(e) => setPhysical(e.target.checked)} />
+        <span>
+          És una cosa física
+          <span className="hint block">Un moble, un electrodomèstic… Segueix sent de tots encara que estigueu en paus, així que no s'amaga.</span>
+        </span>
+      </label>
 
       <fieldset className="space-y-2">
         <legend className="text-[13px] font-medium text-ink-muted">Participants i part de cadascú</legend>

@@ -252,6 +252,8 @@ export interface SharedItem {
   kind: 'oneoff' | 'ongoing';
   participants: SharedParticipant[];
   categoryId?: string;
+  /** Cosa física que teniu entre diversos (un moble, un electrodomèstic): segueix sent vostra encara que estigueu en paus. */
+  physical?: boolean;
   /** Cada cobrament d'aquesta subscripció compta com a despesa compartida pagada per tu. */
   subscriptionId?: string;
   /** Només es compten els cobraments de la subscripció a partir d'aquesta data. */

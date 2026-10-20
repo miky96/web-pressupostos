@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { formatCents } from '../../domain/money';
 import { peopleOverview, splitLabel, summarizeShared, type PersonPosition, type SharedSummary } from '../../domain/shared';
 import { ME } from '../../domain/types';
@@ -40,6 +40,7 @@ export function SharedPage({ budget, onNavigate }: { budget: BudgetState; onNavi
   const [section, setSection] = useState<Section>('persones');
   const [open, setOpen] = useState<Open>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [showSettled, setShowSettled] = useState(false);
 
   const summaries = useMemo(() => (data ? data.shared.map((i) => summarizeShared(i, data.transactions)) : []), [data]);
   const people = useMemo(() => (data ? peopleOverview(data.shared, data.debts, data.transactions) : []), [data]);
@@ -47,8 +48,15 @@ export function SharedPage({ budget, onNavigate }: { budget: BudgetState; onNavi
 
   const owedToMe = people.reduce((s, p) => s + Math.max(p.netCents, 0), 0);
   const iOwe = people.reduce((s, p) => s + Math.max(-p.netCents, 0), 0);
-  const active = summaries.filter((s) => !s.item.archived).sort((a, b) => Number(a.settled) - Number(b.settled) || a.item.name.localeCompare(b.item.name, 'ca'));
+  const byName = (a: SharedSummary, b: SharedSummary) => a.item.name.localeCompare(b.item.name, 'ca');
+  const live = summaries.filter((s) => !s.item.archived);
+  // Un sopar o un viatge en paus ja no cal veure'l; una cosa física continua sent de tots.
+  const isDone = (s: SharedSummary) => !s.item.physical && s.item.kind === 'oneoff' && s.settled && s.expenses.length > 0;
+  const active = live.filter((s) => !s.item.physical && !isDone(s)).sort((a, b) => Number(a.settled) - Number(b.settled) || byName(a, b));
+  const physical = live.filter((s) => s.item.physical).sort(byName);
+  const settled = live.filter(isDone).sort(byName);
   const archived = summaries.filter((s) => s.item.archived);
+  const row = (s: SharedSummary) => <SharedRow key={s.item.id} s={s} onOpen={() => setOpen({ mode: 'view', id: s.item.id })} />;
   const openItem = open?.mode === 'view' ? data.shared.find((i) => i.id === open.id) : undefined;
   const newButton = (
     <Button variant="primary" icon="plus" onClick={() => setOpen({ mode: 'new' })}>
@@ -83,26 +91,20 @@ export function SharedPage({ budget, onNavigate }: { budget: BudgetState; onNavi
         </div>
       ) : (
         <>
-          <div className="space-y-3">
-            {active.map((s) => (
-              <SharedRow key={s.item.id} s={s} onOpen={() => setOpen({ mode: 'view', id: s.item.id })} />
-            ))}
-          </div>
-          {archived.length > 0 && (
+          {active.length > 0 ? (
+            <div className="space-y-3">{active.map(row)}</div>
+          ) : (
+            <p className="text-sm text-ink-muted">Res pendent: esteu en paus amb tot.</p>
+          )}
+          {physical.length > 0 && (
             <div className="mt-8">
-              <button className="mb-3 inline-flex items-center gap-1 text-[13px] font-semibold text-ink-muted hover:text-ink" onClick={() => setShowArchived((v) => !v)}>
-                <Icon name={showArchived ? 'chevronDown' : 'chevronRight'} className="size-4" />
-                Arxivades ({archived.length})
-              </button>
-              {showArchived && (
-                <div className="space-y-3 opacity-80">
-                  {archived.map((s) => (
-                    <SharedRow key={s.item.id} s={s} onOpen={() => setOpen({ mode: 'view', id: s.item.id })} />
-                  ))}
-                </div>
-              )}
+              <h3 className="mb-1 text-[13px] font-semibold text-ink-muted">Coses físiques ({physical.length})</h3>
+              <p className="hint mb-3">Mobles, electrodomèstics… que són de tots. La teva part és el que et toca si un dia es reparteix.</p>
+              <div className="space-y-3">{physical.map(row)}</div>
             </div>
           )}
+          <Collapsible label="En paus" items={settled} open={showSettled} onToggle={() => setShowSettled((v) => !v)} row={row} />
+          <Collapsible label="Arxivades" items={archived} open={showArchived} onToggle={() => setShowArchived((v) => !v)} row={row} />
         </>
       )}
 
@@ -116,13 +118,28 @@ export function SharedPage({ budget, onNavigate }: { budget: BudgetState; onNavi
   );
 }
 
+function Collapsible({ label, items, open, onToggle, row }: { label: string; items: SharedSummary[]; open: boolean; onToggle: () => void; row: (s: SharedSummary) => ReactNode }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-8">
+      <button className="mb-3 inline-flex items-center gap-1 text-[13px] font-semibold text-ink-muted hover:text-ink" onClick={onToggle}>
+        <Icon name={open ? 'chevronDown' : 'chevronRight'} className="size-4" />
+        {label} ({items.length})
+      </button>
+      {open && <div className="space-y-3 opacity-80">{items.map(row)}</div>}
+    </div>
+  );
+}
+
+const itemIcon = (item: SharedSummary['item']) => (item.physical ? 'box' : item.subscriptionId ? 'repeat' : item.kind === 'ongoing' ? 'calendar' : 'split');
+
 function SharedRow({ s, onOpen }: { s: SharedSummary; onOpen: () => void }) {
   const others = s.item.participants.filter((p) => p.id !== ME).map((p) => p.name);
   return (
     <Card>
       <button className="group flex w-full items-center gap-4 px-4 py-3.5 text-left hover:bg-subtle/60" onClick={onOpen}>
         <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-subtle text-ink-muted">
-          <Icon name={s.item.subscriptionId ? 'repeat' : s.item.kind === 'ongoing' ? 'calendar' : 'split'} className="size-[18px]" />
+          <Icon name={itemIcon(s.item)} className="size-[18px]" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -187,7 +204,7 @@ function PeopleList({ people, onOpenItem, onOpenDebts }: { people: PersonPositio
             {p.items.map(({ item, cents }) => (
               <li key={item.id}>
                 <button className="group flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-subtle/60" onClick={() => onOpenItem(item.id)}>
-                  <Icon name={item.subscriptionId ? 'repeat' : 'split'} className="size-4 text-ink-faint" />
+                  <Icon name={item.physical ? 'box' : item.subscriptionId ? 'repeat' : 'split'} className="size-4 text-ink-faint" />
                   <span className="min-w-0 flex-1 truncate">{item.name}</span>
                   <BalanceText cents={cents} className="text-[13px]" />
                   <Icon name="chevronRight" className="size-4 text-ink-faint opacity-0 transition group-hover:opacity-100" />
