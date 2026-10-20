@@ -258,10 +258,17 @@ function BalanceFix({ budget, account }: { budget: BudgetState; account: Account
     }
   }
 
+  // Si el dia és avui, l'ajust es data ara: amb "final del dia" quedaria al futur i el saldo
+  // actual (calculat fins a ara) no el comptaria fins a mitjanit.
+  const moment = () => {
+    const now = todayIso();
+    return day === now.slice(0, 10) ? now : `${day}T23:59:59`;
+  };
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
     try {
-      void apply(parseUserAmount(amount), day, note);
+      void apply(parseUserAmount(amount), moment(), note);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -328,7 +335,7 @@ function BalanceFix({ budget, account }: { budget: BudgetState; account: Account
               }
             })();
             if (target === null) return null;
-            const current = accountBalance(account, txs, [], `${day}T23:59:59`).cents;
+            const current = accountBalance(account, txs, [], moment()).cents;
             return (
               <p className="text-sm">
                 Ara l'app hi calcula <span className="amount font-medium">{formatCents(current, account.currency)}</span>: l'ajust serà de{' '}
